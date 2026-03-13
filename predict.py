@@ -4,7 +4,6 @@ import sys
 import warnings
 from datetime import timedelta
 
-import device
 import numpy as np
 import pandas as pd
 import torch
@@ -30,6 +29,18 @@ class EnviroLSTM(nn.Module):
         out, _ = self.lstm(x, (h0, c0))
         return self.fc(out[:, -1, :])
 
+
+def get_device():
+    """
+    推理阶段默认使用 CPU，但如果有可用 GPU 也可以启用。
+    为避免嵌入式开发板上额外依赖，这里只做简单探测。
+    """
+    if torch.cuda.is_available():
+        name = torch.cuda.get_device_name(0)
+        return torch.device("cuda")
+    return torch.device("cpu")
+
+
 def predict():
     # 参数约定：sys.argv[1] = 需要的点数，sys.argv[2] = 间隔(秒)
     requested_pts = int(sys.argv[1]) if len(sys.argv) > 1 else 1440
@@ -38,6 +49,8 @@ def predict():
     # 与训练脚本保持一致的超参数
     WINDOW_SIZE = 360          # 训练时使用的输入窗口长度（必须一致）
     PREDICT_STEPS = 1440       # 模型实际输出的最大点数（24 小时）
+
+    device = get_device()
 
     # 基准目录：以当前脚本位置为准，便于在不同部署路径下使用
     base_dir = os.path.dirname(os.path.abspath(__file__))
