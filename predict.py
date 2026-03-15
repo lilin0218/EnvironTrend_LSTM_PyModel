@@ -77,7 +77,11 @@ def predict():
     f_max = np.array(scaler["maxs"], dtype=np.float64)
 
     # 2. 读取最新数据
-    df = pd.read_csv(csv_path)
+    df = pd.read_csv(
+    csv_path,
+    engine="python",
+    on_bad_lines="skip")
+
     if df.shape[1] < 3:
         print("[PREDICT] CSV format error: expected at least timestamp,temp,hum.")
         return
