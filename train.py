@@ -1,5 +1,6 @@
 import os
 import json
+import sqlite3
 
 import numpy as np
 import pandas as pd
@@ -50,22 +51,28 @@ class EnviroLSTM(nn.Module):
 # 2. 数据集：从 csvData/data.csv 生成滑动窗口样本
 # ==========================================
 class EnviroDataset(Dataset):
-    def __init__(self, csv_path: str, window_size: int = 360, output_points: int = 1440):
-        if not os.path.exists(csv_path):
-            raise FileNotFoundError(f"找不到数据文件: {csv_path}")
+    def __init__(self, db_path: str, window_size: int = 360, output_points: int = 1440):
+        if not os.path.exists(db_path):
+            raise FileNotFoundError(f"Database not found: {db_path}")
 
-        df = pd.read_csv(csv_path)
-        if df.shape[1] < 3:
-            raise ValueError("CSV 数据格式不正确，预期至少包含 timestamp,temp,hum 三列。")
+        conn = sqlite3.connect(db_path)
+        query = """
+            SELECT timestamp, temp, hum 
+            FROM sensor_data 
+            WHERE temp IS NOT NULL AND hum IS NOT NULL
+            ORDER BY timestamp ASC
+        """
+        df = pd.read_sql_query(query, conn)
+        conn.close()
 
-        df["timestamp"] = pd.to_datetime(df.iloc[:, 0])
-        # 时间差（秒），第一行设为 0
+        if df.empty or len(df.columns) < 3:
+            raise ValueError("Database is empty or has insufficient columns")
+
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["time_delta"] = df["timestamp"].diff().dt.total_seconds().fillna(0.0)
 
-        # 特征: 温度、湿度、时间差
         self.data_raw = df[["temp", "hum", "time_delta"]].values.astype(np.float64)
 
-        # 列向量级别的归一化参数 (min-max)
         self.mins = self.data_raw.min(axis=0)
         self.maxs = self.data_raw.max(axis=0)
         self.data = (self.data_raw - self.mins) / (self.maxs - self.mins + 1e-6)
@@ -75,19 +82,17 @@ class EnviroDataset(Dataset):
 
         if len(self.data) < self.window_size + self.output_points + 1:
             raise ValueError(
-                f"CSV 数据量太少（{len(self.data)} 条），不足以训练 "
-                f"window_size={self.window_size}, output_points={self.output_points} 的模型。"
+                f"Insufficient data ({len(self.data)} records) for training "
+                f"window_size={self.window_size}, output_points={self.output_points}"
             )
 
     def __len__(self):
-        # 可用的起始索引数量：总长度 - 输入窗口 - 预测长度
         return len(self.data) - self.window_size - self.output_points
 
     def __getitem__(self, idx):
         idx = int(idx)
         x = self.data[idx: idx + self.window_size]
         future = self.data[idx + self.window_size: idx + self.window_size + self.output_points]
-        # 只从 future 中取温度、湿度两列作为监督信号
         y_temp = future[:, 0]
         y_hum = future[:, 1]
         y = np.concatenate([y_temp, y_hum], axis=0)
@@ -108,25 +113,23 @@ def main_train():
     models_dir = "models"
     os.makedirs(models_dir, exist_ok=True)
 
-    CSV_PATH = "csvData/data.csv"
-    WINDOW_SIZE = 360          # 使用最近 6 小时作为输入
-    PREDICT_STEPS = 1440       # 预测未来 24 小时
+    DB_PATH = "dbData/enviro_data.db"
+    WINDOW_SIZE = 360
+    PREDICT_STEPS = 1440
     BATCH_SIZE = 64
     MAX_EPOCHS = 150
-    PATIENCE = 15              # 验证集无提升早停
+    PATIENCE = 15
 
     try:
-        dataset = EnviroDataset(CSV_PATH, window_size=WINDOW_SIZE, output_points=PREDICT_STEPS)
+        dataset = EnviroDataset(DB_PATH, window_size=WINDOW_SIZE, output_points=PREDICT_STEPS)
         n_samples = len(dataset)
         print(f"[TRAIN] Total sliding samples: {n_samples}")
 
-        # 导出归一化参数
         scaler_path = os.path.join(models_dir, "scaler_params.json")
         with open(scaler_path, "w") as f:
             json.dump({"mins": dataset.mins.tolist(), "maxs": dataset.maxs.tolist()}, f)
         print(f"[TRAIN] Saved scaler params to {scaler_path}")
 
-        # 划分训练集 / 验证集
         indices = np.arange(n_samples)
         np.random.shuffle(indices)
         val_ratio = 0.2
@@ -145,7 +148,6 @@ def main_train():
             sampler=SubsetRandomSampler(val_indices),
         )
 
-        # 初始化模型
         model = EnviroLSTM(input_size=3, hidden_size=128, num_layers=2, output_points=PREDICT_STEPS).to(device)
         optimizer = optim.Adam(model.parameters(), lr=1e-3)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -174,7 +176,6 @@ def main_train():
 
             train_loss /= len(train_indices)
 
-            # 验证
             model.eval()
             val_loss = 0.0
             with torch.no_grad():
@@ -193,7 +194,6 @@ def main_train():
                 f"train_loss={train_loss:.6f}, val_loss={val_loss:.6f}"
             )
 
-            # 记录最佳模型（基于验证集）
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 best_epoch = epoch
@@ -201,7 +201,6 @@ def main_train():
                 torch.save(model.state_dict(), best_path)
                 print(f"[TRAIN] New best model saved at epoch {epoch}, val_loss={val_loss:.6f}")
 
-            # 简单 early stopping
             if epoch - best_epoch >= PATIENCE:
                 print(
                     f"[TRAIN] Early stopping triggered. "

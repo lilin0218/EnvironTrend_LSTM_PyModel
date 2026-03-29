@@ -3,6 +3,7 @@ import os
 import sys
 import warnings
 from datetime import timedelta
+import sqlite3
 
 import numpy as np
 import pandas as pd
@@ -42,20 +43,17 @@ def get_device():
 
 
 def predict():
-    # 参数约定：sys.argv[1] = 需要的点数，sys.argv[2] = 间隔(秒)
     requested_pts = int(sys.argv[1]) if len(sys.argv) > 1 else 1440
     interval = int(sys.argv[2]) if len(sys.argv) > 2 else 60
 
-    # 与训练脚本保持一致的超参数
-    WINDOW_SIZE = 360          # 训练时使用的输入窗口长度（必须一致）
-    PREDICT_STEPS = 1440       # 模型实际输出的最大点数（24 小时）
+    WINDOW_SIZE = 360
+    PREDICT_STEPS = 1440
 
     device = get_device()
 
-    # 基准目录：以当前脚本位置为准，便于在不同部署路径下使用
     base_dir = os.path.dirname(os.path.abspath(__file__))
     models_dir = os.path.join(base_dir, "models")
-    csv_path = os.path.join(base_dir, "csvData", "data.csv")
+    db_path = os.path.join(base_dir, "dbData", "enviro_data.db")
 
     scaler_path = os.path.join(models_dir, "scaler_params.json")
     model_path = os.path.join(models_dir, "enviro_model.pth")
@@ -66,32 +64,36 @@ def predict():
     if not os.path.exists(model_path):
         print(f"[PREDICT] enviro_model.pth not found at {model_path}")
         return
-    if not os.path.exists(csv_path):
-        print(f"[PREDICT] CSV data not found at {csv_path}")
+    if not os.path.exists(db_path):
+        print(f"[PREDICT] SQLite database not found at {db_path}")
         return
 
-    # 1. 加载归一化参数
     with open(scaler_path, "r") as f:
         scaler = json.load(f)
     f_min = np.array(scaler["mins"], dtype=np.float64)
     f_max = np.array(scaler["maxs"], dtype=np.float64)
 
-    # 2. 读取最新数据
-    df = pd.read_csv(
-    csv_path,
-    engine="python",
-    on_bad_lines="skip")
+    conn = sqlite3.connect(db_path)
+    query = """
+        SELECT timestamp, temp, hum 
+        FROM sensor_data 
+        WHERE temp IS NOT NULL AND hum IS NOT NULL
+        ORDER BY timestamp DESC 
+        LIMIT 2000
+    """
+    df = pd.read_sql_query(query, conn)
+    conn.close()
 
-    if df.shape[1] < 3:
-        print("[PREDICT] CSV format error: expected at least timestamp,temp,hum.")
+    if df.empty or len(df) < 2:
+        print("[PREDICT] Insufficient data in database")
         return
 
-    df["timestamp"] = pd.to_datetime(df.iloc[:, 0])
+    df = df.sort_values("timestamp").reset_index(drop=True)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
     df["time_delta"] = df["timestamp"].diff().dt.total_seconds().fillna(0.0)
 
     features = df[["temp", "hum", "time_delta"]].values.astype(np.float64)
 
-    # 3. 准备输入：取最近 WINDOW_SIZE 条数据，不足时用边缘值填充
     if len(features) >= WINDOW_SIZE:
         recent = features[-WINDOW_SIZE:]
     else:
@@ -102,21 +104,17 @@ def predict():
     scaled = (recent - f_min) / (f_max - f_min + 1e-6)
     input_tensor = torch.from_numpy(scaled.astype(np.float32)).unsqueeze(0).to(device)
 
-    # 4. 加载模型
     model = EnviroLSTM(input_size=3, hidden_size=128, num_layers=2, output_points=PREDICT_STEPS).to(device)
     state_dict = torch.load(model_path, map_location=device)
     model.load_state_dict(state_dict)
     model.eval()
 
-    # 5. 推理
     with torch.no_grad():
         pred = model(input_tensor, device).cpu().numpy().flatten()
 
-    # 6. 反归一化（前 1440 个点温度，后 1440 个点湿度）
     p_temp = pred[:PREDICT_STEPS] * (f_max[0] - f_min[0]) + f_min[0]
     p_hum = pred[PREDICT_STEPS:] * (f_max[1] - f_min[1]) + f_min[1]
 
-    # 7. 构造 JSON（点数由调用方 requested_pts 决定，但不超过模型上限）
     num_pts = min(requested_pts, PREDICT_STEPS)
     results = []
     last_time = df["timestamp"].iloc[-1]
@@ -132,7 +130,6 @@ def predict():
             }
         )
 
-    # 最终输出唯一的 JSON（Qt 侧会自动截掉前面的日志）
     sys.stdout.write(json.dumps(results))
     sys.stdout.flush()
 
