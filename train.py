@@ -15,7 +15,7 @@ from torch.utils.data import Dataset, DataLoader, SubsetRandomSampler
 # ==========================================
 def get_device():
     """
-    优先尝试使用 GPU（如支持的 AMD/NVIDIA），失败则自动回退到 CPU，并打印日志。
+    优先尝试使用 GPU（如支持的 AMD/NVIDIA），失败则提示用户并让其选择是否继续使用 CPU 训练。
     """
     if torch.cuda.is_available():
         name = torch.cuda.get_device_name(0)
@@ -23,8 +23,15 @@ def get_device():
         return torch.device("cuda")
 
     # 其他后端（如 MPS）按需扩展，这里统一回退到 CPU
-    print("[TRAIN] CUDA not available. Fallback to CPU.")
-    return torch.device("cpu")
+    print("[TRAIN] WARNING: CUDA not available.")
+    while True:
+        user_input = input("[TRAIN] Continue with CPU training? (y/n): ").strip().lower()
+        if user_input == 'y':
+            print("[TRAIN] Proceeding with CPU training.")
+            return torch.device("cpu")
+        elif user_input == 'n':
+            print("[TRAIN] Training aborted.")
+            exit(1)
 
 
 # ==========================================
@@ -51,7 +58,7 @@ class EnviroLSTM(nn.Module):
 # 2. 数据集：从 csvData/data.csv 生成滑动窗口样本
 # ==========================================
 class EnviroDataset(Dataset):
-    def __init__(self, db_path: str, window_size: int = 360, output_points: int = 1440):
+    def __init__(self, db_path: str, window_size: int = 360, output_points: int = 1440, skip_user_prompt: bool = False):
         if not os.path.exists(db_path):
             raise FileNotFoundError(f"Database not found: {db_path}")
 
@@ -70,8 +77,14 @@ class EnviroDataset(Dataset):
 
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["time_delta"] = df["timestamp"].diff().dt.total_seconds().fillna(0.0)
+        
+        # 添加日期时间特征
+        df["hour"] = df["timestamp"].dt.hour
+        df["day_of_week"] = df["timestamp"].dt.dayofweek
+        df["month"] = df["timestamp"].dt.month
+        df["day_of_month"] = df["timestamp"].dt.day
 
-        self.data_raw = df[["temp", "hum", "time_delta"]].values.astype(np.float64)
+        self.data_raw = df[["temp", "hum", "time_delta", "hour", "day_of_week", "month", "day_of_month"]].values.astype(np.float64)
 
         self.mins = self.data_raw.min(axis=0)
         self.maxs = self.data_raw.max(axis=0)
@@ -81,13 +94,22 @@ class EnviroDataset(Dataset):
         self.output_points = int(output_points)
 
         if len(self.data) < self.window_size + self.output_points + 1:
-            raise ValueError(
-                f"Insufficient data ({len(self.data)} records) for training "
-                f"window_size={self.window_size}, output_points={self.output_points}"
-            )
+            if not skip_user_prompt:
+                print(f"[TRAIN] WARNING: Insufficient data ({len(self.data)} records) for training")
+                print(f"[TRAIN] Required: {self.window_size + self.output_points + 1} records")
+                while True:
+                    user_input = input("[TRAIN] Continue with training anyway? (y/n): ").strip().lower()
+                    if user_input == 'y':
+                        print("[TRAIN] Proceeding with training despite insufficient data.")
+                        break
+                    elif user_input == 'n':
+                        print("[TRAIN] Training aborted.")
+                        exit(1)
+            else:
+                print(f"[TRAIN] Using adjusted parameters with available data ({len(self.data)} records)")
 
     def __len__(self):
-        return len(self.data) - self.window_size - self.output_points
+        return max(0, len(self.data) - self.window_size - self.output_points)
 
     def __getitem__(self, idx):
         idx = int(idx)
@@ -125,6 +147,38 @@ def main_train():
         n_samples = len(dataset)
         print(f"[TRAIN] Total sliding samples: {n_samples}")
 
+        if n_samples == 0:
+            print(f"[TRAIN] ERROR: No valid samples available for training.")
+            print(f"[TRAIN] Reason: Data length ({len(dataset.data)}) < window_size ({dataset.window_size}) + output_points ({dataset.output_points})")
+            print("[TRAIN] Would you like to automatically adjust window size and output points to fit available data? (y/n): ")
+            while True:
+                user_input = input().strip().lower()
+                if user_input == 'y':
+                    # 自动调整参数
+                    max_possible = len(dataset.data) - 1
+                    if max_possible <= 0:
+                        print("[TRAIN] ERROR: Not enough data to create any samples.")
+                        print("[TRAIN] Training aborted.")
+                        exit(1)
+                    # 调整为可用的最大值
+                    new_window_size = min(360, max_possible // 2)
+                    new_output_points = max_possible - new_window_size
+                    print(f"[TRAIN] Automatically adjusted parameters:")
+                    print(f"[TRAIN] New window_size: {new_window_size}")
+                    print(f"[TRAIN] New output_points: {new_output_points}")
+                    # 重新创建数据集，跳过用户提示
+                    dataset = EnviroDataset(DB_PATH, window_size=new_window_size, output_points=new_output_points, skip_user_prompt=True)
+                    n_samples = len(dataset)
+                    print(f"[TRAIN] Total sliding samples after adjustment: {n_samples}")
+                    if n_samples == 0:
+                        print("[TRAIN] ERROR: Still not enough data after adjustment.")
+                        print("[TRAIN] Training aborted.")
+                        exit(1)
+                    break
+                elif user_input == 'n':
+                    print("[TRAIN] Training aborted.")
+                    exit(1)
+
         scaler_path = os.path.join(models_dir, "scaler_params.json")
         with open(scaler_path, "w") as f:
             json.dump({"mins": dataset.mins.tolist(), "maxs": dataset.maxs.tolist()}, f)
@@ -132,10 +186,26 @@ def main_train():
 
         indices = np.arange(n_samples)
         np.random.shuffle(indices)
-        val_ratio = 0.2
-        val_size = int(n_samples * val_ratio)
-        val_indices = indices[:val_size]
-        train_indices = indices[val_size:]
+        
+        # 处理样本数较少的情况
+        if n_samples == 1:
+            # 只有一个样本时，全部用于训练
+            train_indices = indices
+            val_indices = indices  # 验证集也使用同一个样本
+        else:
+            val_ratio = 0.2
+            val_size = max(1, int(n_samples * val_ratio))  # 确保至少有一个验证样本
+            val_indices = indices[:val_size]
+            train_indices = indices[val_size:]
+
+        # 确保训练集至少有一个样本
+        if len(train_indices) == 0:
+            train_indices = val_indices[:1]
+            # 确保验证集至少有一个样本
+            if len(val_indices) == 1:
+                val_indices = train_indices.copy()
+            else:
+                val_indices = val_indices[1:]
 
         train_loader = DataLoader(
             dataset,
@@ -148,10 +218,10 @@ def main_train():
             sampler=SubsetRandomSampler(val_indices),
         )
 
-        model = EnviroLSTM(input_size=3, hidden_size=128, num_layers=2, output_points=PREDICT_STEPS).to(device)
+        model = EnviroLSTM(input_size=7, hidden_size=128, num_layers=2, output_points=dataset.output_points).to(device)
         optimizer = optim.Adam(model.parameters(), lr=1e-3)
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode="min", factor=0.5, patience=5, verbose=True
+            optimizer, mode="min", factor=0.5, patience=5
         )
         criterion = nn.MSELoss()
 
