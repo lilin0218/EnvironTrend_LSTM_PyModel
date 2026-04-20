@@ -53,7 +53,7 @@ def predict():
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
     models_dir = os.path.join(base_dir, "models")
-    db_path = os.path.join(base_dir, "dbData", "enviro_data.db")
+    db_path = os.path.join(os.path.dirname(base_dir), "dbData", "enviro_data.db")
 
     scaler_path = os.path.join(models_dir, "scaler_params.json")
     model_path = os.path.join(models_dir, "enviro_model.pth")

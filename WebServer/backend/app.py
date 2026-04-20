@@ -2,6 +2,9 @@ from flask import Flask, send_from_directory
 from flask_cors import CORS
 from models import db
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from common import Logger
 
 app = Flask(__name__)
 
@@ -37,4 +40,10 @@ def index():
 from routes import *
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    log = Logger.instance()
+    log.info('WebServer', 'Starting Flask server on http://0.0.0.0:5000')
+    try:
+        app.run(host='0.0.0.0', port=5000)
+    except Exception as e:
+        log.critical('WebServer', f'Server failed to start: {str(e)}')
+        raise

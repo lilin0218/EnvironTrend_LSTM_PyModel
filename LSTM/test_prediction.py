@@ -175,7 +175,7 @@ def calculate_accuracy(predicted, actual):
 # 主函数
 def main():
     # 参数设置
-    DB_PATH = "dbData/enviro_data.db"
+    DB_PATH = "../dbData/enviro_data.db"
     MODEL_PATH = "models/enviro_model.pth"
     SCALER_PATH = "models/scaler_params.json"
     WINDOW_SIZE = 360  # 与训练时一致

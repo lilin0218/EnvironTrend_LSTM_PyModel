@@ -1,5 +1,8 @@
 import sqlite3
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from common import Logger
 from datetime import datetime
 
 class DBHandler:
@@ -7,6 +10,7 @@ class DBHandler:
     def __init__(self, db_path):
         """初始化数据库连接"""
         self.db_path = db_path
+        self.log = Logger.instance()
         self._create_table()
 
     def _create_table(self):
@@ -58,7 +62,7 @@ class DBHandler:
             conn.commit()
             return True
         except Exception as e:
-            print(f"插入数据失败: {e}")
+            self.log.error('DBHandler', f'插入数据失败: {str(e)}')
             return False
         finally:
             conn.close()
@@ -84,7 +88,7 @@ class DBHandler:
                 })
             return result
         except Exception as e:
-            print(f"获取数据失败: {e}")
+            self.log.error('DBHandler', f'获取数据失败: {str(e)}')
             return []
         finally:
             conn.close()
@@ -98,7 +102,7 @@ class DBHandler:
             conn.commit()
             return True
         except Exception as e:
-            print(f"清空数据失败: {e}")
+            self.log.error('DBHandler', f'清空数据失败: {str(e)}')
             return False
         finally:
             conn.close()

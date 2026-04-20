@@ -135,7 +135,7 @@ def main_train():
     models_dir = "models"
     os.makedirs(models_dir, exist_ok=True)
 
-    DB_PATH = "dbData/enviro_data.db"
+    DB_PATH = "../dbData/enviro_data.db"
     WINDOW_SIZE = 360
     PREDICT_STEPS = 1440
     BATCH_SIZE = 64

@@ -2,6 +2,12 @@ from flask import request, jsonify
 from app import app
 from models import EnvironmentalData, db
 from datetime import datetime
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from common import Logger
+
+log = Logger.instance()
 
 @app.route('/api/data', methods=['POST'])
 def receive_data():
@@ -9,19 +15,19 @@ def receive_data():
     try:
         data = request.get_json()
         if not data:
+            log.warning('API', 'No data provided in POST request')
             return jsonify({'error': 'No data provided'}), 400
 
-        # 检查时间戳是否存在
         if 'timestamp' not in data:
+            log.warning('API', 'Missing required field: timestamp')
             return jsonify({'error': 'Missing field: timestamp'}), 400
 
-        # 处理时间戳，转换为datetime类型
         try:
             timestamp = datetime.fromisoformat(data['timestamp'])
         except ValueError:
+            log.warning('API', f'Invalid timestamp format: {data.get("timestamp")}')
             return jsonify({'error': 'Invalid timestamp format, use ISO format'}), 400
 
-        # 创建数据对象，其他字段可以为空
         new_data = EnvironmentalData(
             timestamp=timestamp,
             temperature=data.get('temperature'),
@@ -34,9 +40,11 @@ def receive_data():
 
         db.session.add(new_data)
         db.session.commit()
-
+        
+        log.info('API', f'Data received successfully at {timestamp}')
         return jsonify({'message': 'Data received successfully'}), 201
     except Exception as e:
+        log.error('API', f'Error receiving data: {str(e)}')
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/data', methods=['GET'])
