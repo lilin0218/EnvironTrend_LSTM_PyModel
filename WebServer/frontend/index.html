@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>环境数据监控系统</title>
+    <link rel="stylesheet" href="/frontend/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>环境数据监控系统</h1>
+            <p class="subtitle">Environmental Data Monitoring System</p>
+        </header>
+
+        <nav class="top-nav">
+            <div class="nav-tabs">
+                <button class="nav-tab active" data-page="realtime">实时数据</button>
+                <button class="nav-tab" data-page="statistics">数据分析统计</button>
+                <button class="nav-tab" data-page="trends">趋势折线图</button>
+                <button class="nav-tab" data-page="history">历史数据</button>
+            </div>
+        </nav>
+
+        <div class="page-container">
+            <div class="page-content active" id="page-realtime">
+                <section class="data-display">
+                    <h2>实时数据</h2>
+                    <div id="latest-data" class="data-card">
+                        <p>加载中...</p>
+                    </div>
+                </section>
+            </div>
+
+            <div class="page-content" id="page-statistics">
+                <section class="stats-section">
+                    <h2>传感器统计数据</h2>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon">T</div>
+                            <div class="stat-info">
+                                <h3>温度</h3>
+                                <div class="stat-values">
+                                    <span class="stat-item"><span class="label">最高:</span> <span class="value" id="temp-max">-</span> C</span>
+                                    <span class="stat-item"><span class="label">最低:</span> <span class="value" id="temp-min">-</span> C</span>
+                                    <span class="stat-item"><span class="label">平均:</span> <span class="value" id="temp-avg">-</span> C</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">H</div>
+                            <div class="stat-info">
+                                <h3>湿度</h3>
+                                <div class="stat-values">
+                                    <span class="stat-item"><span class="label">最高:</span> <span class="value" id="hum-max">-</span> %</span>
+                                    <span class="stat-item"><span class="label">最低:</span> <span class="value" id="hum-min">-</span> %</span>
+                                    <span class="stat-item"><span class="label">平均:</span> <span class="value" id="hum-avg">-</span> %</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">L</div>
+                            <div class="stat-info">
+                                <h3>光照</h3>
+                                <div class="stat-values">
+                                    <span class="stat-item"><span class="label">最高:</span> <span class="value" id="light-max">-</span></span>
+                                    <span class="stat-item"><span class="label">最低:</span> <span class="value" id="light-min">-</span></span>
+                                    <span class="stat-item"><span class="label">平均:</span> <span class="value" id="light-avg">-</span></span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">M</div>
+                            <div class="stat-info">
+                                <h3>MQ135</h3>
+                                <div class="stat-values">
+                                    <span class="stat-item"><span class="label">最高:</span> <span class="value" id="mq135-max">-</span></span>
+                                    <span class="stat-item"><span class="label">最低:</span> <span class="value" id="mq135-min">-</span></span>
+                                    <span class="stat-item"><span class="label">平均:</span> <span class="value" id="mq135-avg">-</span></span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">Z</div>
+                            <div class="stat-info">
+                                <h3>ZP01</h3>
+                                <div class="stat-values">
+                                    <span class="stat-item"><span class="label">最高:</span> <span class="value" id="zp01-max">-</span></span>
+                                    <span class="stat-item"><span class="label">最低:</span> <span class="value" id="zp01-min">-</span></span>
+                                    <span class="stat-item"><span class="label">平均:</span> <span class="value" id="zp01-avg">-</span></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="total-records">
+                        <span>总记录数: <span id="total-records">-</span></span>
+                    </div>
+                </section>
+
+                <section class="bar-charts">
+                    <h2>统计柱状图</h2>
+                    <div class="charts-grid">
+                        <div class="chart-container">
+                            <canvas id="stats-bar-chart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="avg-bar-chart"></canvas>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="pie-charts">
+                    <h2>数据分布饼图</h2>
+                    <div class="charts-grid">
+                        <div class="chart-container">
+                            <canvas id="temp-distribution"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="hum-distribution"></canvas>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <div class="page-content" id="page-trends">
+                <section class="charts">
+                    <h2>数据趋势图</h2>
+                    <div class="charts-grid">
+                        <div class="chart-container">
+                            <canvas id="temperature-chart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="humidity-chart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="light-chart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="mq135-chart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="zp01-chart"></canvas>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <div class="page-content" id="page-history">
+                <section class="data-table-section">
+                    <h2>历史数据列表</h2>
+                    <div class="table-container">
+                        <table id="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>时间</th>
+                                    <th>温度 (C)</th>
+                                    <th>湿度 (%)</th>
+                                    <th>光照</th>
+                                    <th>MQ135</th>
+                                    <th>ZP01</th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-body">
+                                <tr><td colspan="7">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="pagination-bar">
+                        <div class="pagination-controls">
+                            <button class="page-btn" id="prev-page">上一页</button>
+                            <span class="page-info">第 <span id="current-page">1</span> / <span id="total-pages">1</span> 页</span>
+                            <button class="page-btn" id="next-page">下一页</button>
+                        </div>
+                        <select id="page-size" class="page-size-select">
+                            <option value="10">10 条/页</option>
+                            <option value="20" selected>20 条/页</option>
+                            <option value="50">50 条/页</option>
+                            <option value="100">100 条/页</option>
+                        </select>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+    <script src="/frontend/js/script.js"></script>
+</body>
+</html>
