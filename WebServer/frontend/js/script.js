@@ -4,6 +4,7 @@ let currentPage = 1;
 let pageSize = 20;
 let totalPages = 1;
 let currentTab = 'realtime';
+let statsData = null;
 
 function initCharts() {
     console.log('Initializing charts...');
@@ -13,34 +14,60 @@ function initCharts() {
     const ctxMq135 = document.getElementById('mq135-chart').getContext('2d');
     const ctxZp01 = document.getElementById('zp01-chart').getContext('2d');
 
+    const yAxisConfig = function(stats, field, fallbackMin, fallbackMax) {
+        const min = stats ? (stats[field] ? stats[field].min : null) : null;
+        const max = stats ? (stats[field] ? stats[field].max : null) : null;
+        const config = { beginAtZero: false, ticks: { maxTicksLimit: 10 } };
+        if (min !== null && max !== null) {
+            const padding = (max - min) * 0.1;
+            config.min = Math.max(0, min - padding);
+            config.max = max + padding;
+        } else if (fallbackMin !== undefined && fallbackMax !== undefined) {
+            config.min = fallbackMin;
+            config.max = fallbackMax;
+        }
+        return config;
+    };
+
+    const xAxisConfig = {
+        ticks: { maxRotation: 45, minRotation: 45, font: { size: 9 } },
+        grid: { display: false }
+    };
+
+    const tempYAxis = yAxisConfig(statsData, 'temperature', 0, 50);
+    const humYAxis = yAxisConfig(statsData, 'humidity', 0, 100);
+    const lightYAxis = yAxisConfig(statsData, 'light', 0, 1000);
+    const mq135YAxis = yAxisConfig(statsData, 'mq135', 0, 500);
+    const zp01YAxis = yAxisConfig(statsData, 'zp01', 0, 500);
+
     temperatureChart = new Chart(ctxTemp, {
         type: 'line',
         data: { labels: [], datasets: [{ label: 'Temperature (C)', data: [], borderColor: 'rgba(255, 99, 132, 1)', backgroundColor: 'rgba(255, 99, 132, 0.2)', tension: 0.1 }] },
-        options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+        options: { responsive: true, maintainAspectRatio: true, scales: { x: xAxisConfig, y: tempYAxis } }
     });
 
     humidityChart = new Chart(ctxHumidity, {
         type: 'line',
         data: { labels: [], datasets: [{ label: 'Humidity (%)', data: [], borderColor: 'rgba(54, 162, 235, 1)', backgroundColor: 'rgba(54, 162, 235, 0.2)', tension: 0.1 }] },
-        options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+        options: { responsive: true, maintainAspectRatio: true, scales: { x: xAxisConfig, y: humYAxis } }
     });
 
     lightChart = new Chart(ctxLight, {
         type: 'line',
         data: { labels: [], datasets: [{ label: 'Light', data: [], borderColor: 'rgba(255, 206, 86, 1)', backgroundColor: 'rgba(255, 206, 86, 0.2)', tension: 0.1 }] },
-        options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+        options: { responsive: true, maintainAspectRatio: true, scales: { x: xAxisConfig, y: lightYAxis } }
     });
 
     mq135Chart = new Chart(ctxMq135, {
         type: 'line',
         data: { labels: [], datasets: [{ label: 'MQ135', data: [], borderColor: 'rgba(75, 192, 192, 1)', backgroundColor: 'rgba(75, 192, 192, 0.2)', tension: 0.1 }] },
-        options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+        options: { responsive: true, maintainAspectRatio: true, scales: { x: xAxisConfig, y: mq135YAxis } }
     });
 
     zp01Chart = new Chart(ctxZp01, {
         type: 'line',
         data: { labels: [], datasets: [{ label: 'ZP01', data: [], borderColor: 'rgba(153, 102, 255, 1)', backgroundColor: 'rgba(153, 102, 255, 0.2)', tension: 0.1 }] },
-        options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+        options: { responsive: true, maintainAspectRatio: true, scales: { x: xAxisConfig, y: zp01YAxis } }
     });
     console.log('Charts initialized');
 }
@@ -112,7 +139,7 @@ function fetchLatestData() {
 
 function updateLineCharts(data) {
     console.log('Updating line charts with', data.length, 'records');
-    var recentData = data.slice(0, 10).reverse();
+    var recentData = data.slice(0, 30).reverse();
     var labels = recentData.map(function(item) { return formatTimestamp(item.timestamp); });
 
     temperatureChart.data.labels = labels;
@@ -147,6 +174,7 @@ function fetchStatistics() {
         })
         .then(function(stats) {
             console.log('Statistics received:', stats);
+            statsData = stats;
             document.getElementById('temp-max').textContent = stats.temperature.max || '-';
             document.getElementById('temp-min').textContent = stats.temperature.min || '-';
             document.getElementById('temp-avg').textContent = stats.temperature.avg || '-';
@@ -171,6 +199,7 @@ function fetchStatistics() {
 
             updateBarCharts(stats);
             updatePieCharts(stats);
+            updateLineChartBounds(stats);
         })
         .catch(function(error) {
             console.error('Error fetching statistics:', error);
@@ -232,6 +261,28 @@ function updatePieCharts(stats) {
         datasets: [{ data: humRanges.map(function(r) { return r.value; }), backgroundColor: ['rgba(255, 206, 86, 0.8)', 'rgba(75, 192, 192, 0.8)', 'rgba(54, 162, 235, 0.8)'], borderWidth: 1 }]
     };
     humDistributionChart.update();
+}
+
+function updateLineChartBounds(stats) {
+    console.log('Updating line chart Y-axis bounds...');
+
+    const updateChartBounds = function(chart, field) {
+        const min = stats[field] ? stats[field].min : null;
+        const max = stats[field] ? stats[field].max : null;
+
+        if (min !== null && max !== null) {
+            const padding = (max - min) * 0.1;
+            chart.options.scales.y.min = Math.max(0, min - padding);
+            chart.options.scales.y.max = max + padding;
+            chart.update();
+        }
+    };
+
+    updateChartBounds(temperatureChart, 'temperature');
+    updateChartBounds(humidityChart, 'humidity');
+    updateChartBounds(lightChart, 'light');
+    updateChartBounds(mq135Chart, 'mq135');
+    updateChartBounds(zp01Chart, 'zp01');
 }
 
 function fetchPagedData(page, size) {

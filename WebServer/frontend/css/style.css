@@ -234,11 +234,28 @@ section h2 {
     gap: 16px;
 }
 
-.chart-container {
-    height: 250px;
+#page-trends .charts-grid {
+    grid-template-columns: repeat(2, 1fr);
+    width: 100%;
+}
+
+#page-trends .chart-container {
+    width: 100%;
+    height: 0;
+    padding-bottom: 90%;
+    position: relative;
     background: #333;
     border: 1px solid #555;
-    padding: 12px;
+}
+
+#page-trends .chart-container canvas {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: calc(100% - 24px) !important;
+    height: calc(100% - 24px) !important;
 }
 
 .table-container {
