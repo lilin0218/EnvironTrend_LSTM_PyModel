@@ -185,7 +185,7 @@ def main_train():
 
         scaler_path = os.path.join(models_dir, "scaler_params.json")
         with open(scaler_path, "w") as f:
-            json.dump({"mins": dataset.mins.tolist(), "maxs": dataset.maxs.tolist()}, f)
+            json.dump({"mins": dataset.mins.tolist(), "maxs": dataset.maxs.tolist(), "output_points": dataset.output_points}, f)
         print(f"[TRAIN] Saved scaler params to {scaler_path}")
 
         indices = np.arange(n_samples)

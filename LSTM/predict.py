@@ -42,14 +42,17 @@ def predict():
     interval = int(sys.argv[2]) if len(sys.argv) > 2 else 60
 
     WINDOW_SIZE = 360
-    PREDICT_STEPS = 1440
     OUTPUT_FEATURES = 5
 
     device = get_device()
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
     models_dir = os.path.join(base_dir, "models")
-    db_path = os.path.join(os.path.dirname(base_dir), "dbData", "enviro_data.db")
+
+    db_path_primary = os.path.join(base_dir, "dbData", "enviro_data.db")
+    db_path_secondary = os.path.join(base_dir, "..", "QtProject", "EnviroTrend_demo-main", "deploy", "dbData", "enviro_data.db")
+    db_path_secondary = os.path.normpath(os.path.expanduser(db_path_secondary))
+    db_path = db_path_primary if os.path.exists(db_path_primary) else db_path_secondary
 
     scaler_path = os.path.join(models_dir, "scaler_params.json")
     model_path = os.path.join(models_dir, "enviro_model.pth")
@@ -61,13 +64,16 @@ def predict():
         print(f"[PREDICT] enviro_model.pth not found at {model_path}")
         return
     if not os.path.exists(db_path):
-        print(f"[PREDICT] SQLite database not found at {db_path}")
+        print(f"[PREDICT] SQLite database not found. Checked:")
+        print(f"  - {db_path_primary}")
+        print(f"  - {db_path_secondary}")
         return
 
     with open(scaler_path, "r") as f:
         scaler = json.load(f)
     f_min = np.array(scaler["mins"], dtype=np.float64)
     f_max = np.array(scaler["maxs"], dtype=np.float64)
+    PREDICT_STEPS = scaler.get("output_points", 1440)
 
     conn = sqlite3.connect(db_path)
     query = """
