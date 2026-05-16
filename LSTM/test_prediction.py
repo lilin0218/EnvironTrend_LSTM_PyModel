@@ -141,7 +141,7 @@ def generate_time_series(start_time, output_points):
     return times
 
 
-def calculate_accuracy(predicted, actual):
+def calculate_accuracy(predicted, actual, tolerance=None):
     min_length = min(len(predicted), len(actual))
     predicted = predicted[:min_length]
     actual = actual[:min_length]
@@ -150,16 +150,45 @@ def calculate_accuracy(predicted, actual):
     mae = np.mean(np.abs(predicted - actual))
     mean_actual = np.mean(actual)
     relative_error = rmse / mean_actual if mean_actual > 0 else 0
+    
+    within_tolerance = None
+    if tolerance is not None:
+        errors = np.abs(predicted - actual)
+        within_tolerance = np.mean(errors <= tolerance) * 100
 
     return {
         "rmse": rmse,
         "mae": mae,
         "relative_error": relative_error,
-        "accuracy": 1 - relative_error if relative_error < 1 else 0
+        "accuracy": 1 - relative_error if relative_error < 1 else 0,
+        "within_tolerance_percent": within_tolerance
     }
 
 
-def main():
+def save_tolerances(tolerances, base_dir):
+    tolerances_path = os.path.join(base_dir, "tolerances.json")
+    with open(tolerances_path, "w", encoding="utf-8") as f:
+        json.dump(tolerances, f, ensure_ascii=False, indent=2)
+    print(f"✓ Tolerances saved to {tolerances_path}")
+
+
+def load_tolerances(base_dir):
+    tolerances_path = os.path.join(base_dir, "tolerances.json")
+    default_tolerances = {
+        "temperature": 1.0,
+        "humidity": 2.5,
+        "light": 0.5,
+        "mq135": 2.0,
+        "zp01": 2.0
+    }
+    
+    if os.path.exists(tolerances_path):
+        with open(tolerances_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return default_tolerances
+
+
+def run_prediction_and_generate_chart():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     models_dir = os.path.join(base_dir, "models")
     DB_PATH = os.path.join(os.path.dirname(base_dir), "dbData", "enviro_data.db")
@@ -169,10 +198,10 @@ def main():
 
     if not os.path.exists(MODEL_PATH):
         print("Error: Model file not found")
-        return
+        return None
     if not os.path.exists(SCALER_PATH):
         print("Error: Scaler params file not found")
-        return
+        return None
 
     device = get_device()
     print(f"Using device: {device}")
@@ -186,7 +215,7 @@ def main():
 
     if last_time is None:
         print("Error: No data in database")
-        return
+        return None
 
     last_time = pd.to_datetime(last_time)
     print(f"Last time in database: {last_time}")
@@ -225,7 +254,6 @@ def main():
     actual_mq135 = actual_df["mq135"].values
     actual_zp01 = actual_df["zp01"].values
 
-    # 转换为datetime对象以匹配predicted_times的类型
     actual_times_datetime = [t.to_pydatetime() for t in actual_times]
     time_to_temp = {time: temp for time, temp in zip(actual_times_datetime, actual_temp)}
     time_to_hum = {time: hum for time, hum in zip(actual_times_datetime, actual_hum)}
@@ -245,7 +273,6 @@ def main():
     aligned_actual_zp01 = []
     aligned_times = []
 
-    # 转换实际时间为分钟级精度，忽略秒数
     time_to_temp_minute = {t.replace(second=0): v for t, v in time_to_temp.items()}
     time_to_hum_minute = {t.replace(second=0): v for t, v in time_to_hum.items()}
     time_to_light_minute = {t.replace(second=0): v for t, v in time_to_light.items()}
@@ -254,7 +281,6 @@ def main():
 
     for time, pred_temp, pred_hum, pred_light, pred_mq135, pred_zp01 in zip(predicted_times, temp_pred, hum_pred,
                                                                             light_pred, mq135_pred, zp01_pred):
-        # 将预测时间也转换为分钟级精度
         time_minute = time.replace(second=0)
         if (time_minute in time_to_temp_minute and
                 time_minute in time_to_hum_minute and
@@ -283,31 +309,6 @@ def main():
     aligned_actual_mq135 = np.array(aligned_actual_mq135)
     aligned_pred_zp01 = np.array(aligned_pred_zp01)
     aligned_actual_zp01 = np.array(aligned_actual_zp01)
-
-    temp_accuracy = calculate_accuracy(aligned_pred_temp, aligned_actual_temp)
-    print(f"Temperature prediction accuracy: {temp_accuracy['accuracy']:.4f}")
-    print(f"Temperature RMSE: {temp_accuracy['rmse']:.4f}")
-    print(f"Temperature MAE: {temp_accuracy['mae']:.4f}")
-
-    hum_accuracy = calculate_accuracy(aligned_pred_hum, aligned_actual_hum)
-    print(f"Humidity prediction accuracy: {hum_accuracy['accuracy']:.4f}")
-    print(f"Humidity RMSE: {hum_accuracy['rmse']:.4f}")
-    print(f"Humidity MAE: {hum_accuracy['mae']:.4f}")
-
-    light_accuracy = calculate_accuracy(aligned_pred_light, aligned_actual_light)
-    print(f"Light prediction accuracy: {light_accuracy['accuracy']:.4f}")
-    print(f"Light RMSE: {light_accuracy['rmse']:.4f}")
-    print(f"Light MAE: {light_accuracy['mae']:.4f}")
-
-    mq135_accuracy = calculate_accuracy(aligned_pred_mq135, aligned_actual_mq135)
-    print(f"MQ135 prediction accuracy: {mq135_accuracy['accuracy']:.4f}")
-    print(f"MQ135 RMSE: {mq135_accuracy['rmse']:.4f}")
-    print(f"MQ135 MAE: {mq135_accuracy['mae']:.4f}")
-
-    zp01_accuracy = calculate_accuracy(aligned_pred_zp01, aligned_actual_zp01)
-    print(f"ZP01 prediction accuracy: {zp01_accuracy['accuracy']:.4f}")
-    print(f"ZP01 RMSE: {zp01_accuracy['rmse']:.4f}")
-    print(f"ZP01 MAE: {zp01_accuracy['mae']:.4f}")
 
     fig, axes = plt.subplots(5, 2, figsize=(16, 20), sharex=True)
 
@@ -424,10 +425,159 @@ def main():
 
     plt.tight_layout()
 
-    plt.savefig('prediction_comparison.png')
-    print("Chart saved as prediction_comparison.png")
+    chart_path = os.path.join(base_dir, 'prediction_comparison.png')
+    plt.savefig(chart_path)
+    print(f"✓ Chart saved as {chart_path}")
+    
+    plt.close()
 
-    plt.show()
+    return {
+        "temp": (aligned_pred_temp, aligned_actual_temp),
+        "hum": (aligned_pred_hum, aligned_actual_hum),
+        "light": (aligned_pred_light, aligned_actual_light),
+        "mq135": (aligned_pred_mq135, aligned_actual_mq135),
+        "zp01": (aligned_pred_zp01, aligned_actual_zp01)
+    }
+
+
+def show_avg_errors(prediction_data):
+    print("\n" + "=" * 50)
+    print("平均误差统计")
+    print("=" * 50)
+    
+    sensor_names = {
+        "temp": ("Temperature", "°C"),
+        "hum": ("Humidity", "%"),
+        "light": ("Light", ""),
+        "mq135": ("MQ135", ""),
+        "zp01": ("ZP01", "")
+    }
+    
+    for sensor_key, (name, unit) in sensor_names.items():
+        pred, actual = prediction_data[sensor_key]
+        result = calculate_accuracy(pred, actual)
+        print(f"\n{name}:")
+        print(f"  MAE (平均绝对误差): {result['mae']:.4f} {unit}")
+        print(f"  RMSE (均方根误差): {result['rmse']:.4f} {unit}")
+    
+    print("\n" + "=" * 50)
+
+
+def set_tolerances(base_dir):
+    print("\n" + "=" * 50)
+    print("设置容忍误差")
+    print("=" * 50)
+    
+    current_tolerances = load_tolerances(base_dir)
+    
+    print("\n当前容忍误差设置:")
+    sensor_names = {
+        "temperature": ("Temperature", "°C"),
+        "humidity": ("Humidity", "%"),
+        "light": ("Light", ""),
+        "mq135": ("MQ135", ""),
+        "zp01": ("ZP01", "")
+    }
+    
+    for key, (name, unit) in sensor_names.items():
+        print(f"  {name}: {current_tolerances.get(key, 'N/A')} {unit}")
+    
+    print("\n请输入新的容忍误差（直接回车保持原值）:")
+    new_tolerances = {}
+    
+    for key, (name, unit) in sensor_names.items():
+        while True:
+            try:
+                current_val = current_tolerances.get(key, 0)
+                user_input = input(f"  {name} [当前: {current_val}] {unit}: ").strip()
+                
+                if user_input == "":
+                    new_tolerances[key] = current_val
+                    break
+                
+                val = float(user_input)
+                if val < 0:
+                    print("    错误: 容忍误差不能为负数")
+                    continue
+                
+                new_tolerances[key] = val
+                break
+            except ValueError:
+                print("    错误: 请输入有效的数字")
+    
+    save_tolerances(new_tolerances, base_dir)
+    print("\n" + "=" * 50)
+
+
+def query_hit_rate(prediction_data, base_dir):
+    print("\n" + "=" * 50)
+    print("预测命中率查询")
+    print("=" * 50)
+    
+    tolerances = load_tolerances(base_dir)
+    
+    print("\n当前容忍误差设置:")
+    sensor_names = {
+        "temp": ("Temperature", "°C", "temperature"),
+        "hum": ("Humidity", "%", "humidity"),
+        "light": ("Light", "", "light"),
+        "mq135": ("MQ135", "", "mq135"),
+        "zp01": ("ZP01", "", "zp01")
+    }
+    
+    print("\n预测命中率:")
+    print("-" * 50)
+    
+    for sensor_key, (name, unit, tolerance_key) in sensor_names.items():
+        pred, actual = prediction_data[sensor_key]
+        tolerance = tolerances.get(tolerance_key, 0)
+        result = calculate_accuracy(pred, actual, tolerance)
+        
+        hit_rate = result['within_tolerance_percent'] or 0
+        print(f"\n{name} (容忍误差: {tolerance} {unit}):")
+        print(f"  命中率: {hit_rate:.2f}%")
+        print(f"  MAE: {result['mae']:.4f} {unit}")
+        print(f"  RMSE: {result['rmse']:.4f} {unit}")
+    
+    print("\n" + "=" * 50)
+
+
+def main():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    print("=" * 60)
+    print("环境预测分析工具")
+    print("=" * 60)
+    
+    print("\n[步骤 1] 生成预测对比图...")
+    prediction_data = run_prediction_and_generate_chart()
+    
+    if prediction_data is None:
+        print("预测失败，程序退出")
+        return
+    
+    while True:
+        print("\n" + "=" * 60)
+        print("请选择操作:")
+        print("  1. 查看误差平均值")
+        print("  2. 设置容忍误差")
+        print("  3. 查询预测命中率")
+        print("  4. 退出")
+        print("=" * 60)
+        
+        choice = input("\n请输入选项 (1-4): ").strip()
+        
+        if choice == "1":
+            show_avg_errors(prediction_data)
+        elif choice == "2":
+            set_tolerances(base_dir)
+        elif choice == "3":
+            query_hit_rate(prediction_data, base_dir)
+        elif choice == "4":
+            print("\n程序终了")
+            break
+        else:
+            print("\n无效选项，请重新输入")
 
 
 if __name__ == "__main__":

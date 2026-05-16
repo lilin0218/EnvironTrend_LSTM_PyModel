@@ -42,6 +42,7 @@ def predict():
     interval = int(sys.argv[2]) if len(sys.argv) > 2 else 60
 
     WINDOW_SIZE = 360
+    PREDICT_STEPS = 1440
     OUTPUT_FEATURES = 5
 
     device = get_device()
@@ -73,7 +74,6 @@ def predict():
         scaler = json.load(f)
     f_min = np.array(scaler["mins"], dtype=np.float64)
     f_max = np.array(scaler["maxs"], dtype=np.float64)
-    PREDICT_STEPS = scaler.get("output_points", 1440)
 
     conn = sqlite3.connect(db_path)
     query = """
