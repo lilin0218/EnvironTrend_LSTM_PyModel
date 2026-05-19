@@ -37,37 +37,62 @@ def get_device():
     return torch.device("cpu")
 
 
+def find_database():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    possible_paths = [
+        os.path.join(base_dir, "dbData", "enviro_data.db"),
+        os.path.join(os.path.dirname(base_dir), "dbData", "enviro_data.db"),
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+    
+    print("\n[错误] 未找到数据库文件", file=sys.stderr)
+    print("已检查路径:", file=sys.stderr)
+    for path in possible_paths:
+        print(f"  - {path}", file=sys.stderr)
+    
+    while True:
+        choice = input("\n是否手动选择数据库位置? (y/n): ").strip().lower()
+        if choice == 'y':
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            file_path = filedialog.askopenfilename(
+                title="选择数据库文件",
+                filetypes=[("SQLite数据库", "*.db"), ("所有文件", "*.*")]
+            )
+            if file_path and os.path.exists(file_path):
+                return file_path
+            print("[错误] 文件不存在，请重新选择", file=sys.stderr)
+        elif choice == 'n':
+            print("[退出] 程序终止", file=sys.stderr)
+            sys.exit(1)
+
+
 def predict():
     requested_pts = int(sys.argv[1]) if len(sys.argv) > 1 else 1440
     interval = int(sys.argv[2]) if len(sys.argv) > 2 else 60
 
     WINDOW_SIZE = 360
-    PREDICT_STEPS = 1440
     OUTPUT_FEATURES = 5
 
     device = get_device()
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
     models_dir = os.path.join(base_dir, "models")
-
-    db_path_primary = os.path.join(base_dir, "dbData", "enviro_data.db")
-    db_path_secondary = os.path.join(base_dir, "..", "QtProject", "EnviroTrend_demo-main", "deploy", "dbData", "enviro_data.db")
-    db_path_secondary = os.path.normpath(os.path.expanduser(db_path_secondary))
-    db_path = db_path_primary if os.path.exists(db_path_primary) else db_path_secondary
+    db_path = find_database()
 
     scaler_path = os.path.join(models_dir, "scaler_params.json")
     model_path = os.path.join(models_dir, "enviro_model.pth")
 
     if not os.path.exists(scaler_path):
-        print(f"[PREDICT] scaler_params.json not found at {scaler_path}")
+        print(f"[预测] 缩放参数文件未找到: {scaler_path}", file=sys.stderr)
         return
     if not os.path.exists(model_path):
-        print(f"[PREDICT] enviro_model.pth not found at {model_path}")
-        return
-    if not os.path.exists(db_path):
-        print(f"[PREDICT] SQLite database not found. Checked:")
-        print(f"  - {db_path_primary}")
-        print(f"  - {db_path_secondary}")
+        print(f"[预测] 模型文件未找到: {model_path}", file=sys.stderr)
         return
 
     with open(scaler_path, "r") as f:
@@ -87,7 +112,7 @@ def predict():
     conn.close()
 
     if df.empty or len(df) < 2:
-        print("[PREDICT] Insufficient data in database")
+        print("[预测] 数据库数据不足", file=sys.stderr)
         return
 
     df = df.sort_values("timestamp").reset_index(drop=True)
@@ -110,8 +135,11 @@ def predict():
     scaled = (recent - f_min) / (f_max - f_min + 1e-6)
     input_tensor = torch.from_numpy(scaled.astype(np.float32)).unsqueeze(0).to(device)
 
-    model = EnviroLSTM(input_size=10, hidden_size=128, num_layers=2, output_points=PREDICT_STEPS, output_features=OUTPUT_FEATURES).to(device)
     state_dict = torch.load(model_path, map_location=device)
+    fc_weight_shape = state_dict["fc.weight"].shape
+    PREDICT_STEPS = fc_weight_shape[0] // OUTPUT_FEATURES
+
+    model = EnviroLSTM(input_size=10, hidden_size=128, num_layers=2, output_points=PREDICT_STEPS, output_features=OUTPUT_FEATURES).to(device)
     model.load_state_dict(state_dict)
     model.eval()
 

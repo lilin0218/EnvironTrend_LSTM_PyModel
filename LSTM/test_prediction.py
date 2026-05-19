@@ -6,7 +6,20 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
 from datetime import datetime, timedelta
+
+# 解决matplotlib中文字体问题
+def setup_chinese_font():
+    chinese_fonts = ['SimHei', 'Microsoft YaHei', 'PingFang SC', 'STHeiti', 'WenQuanYi Micro Hei']
+    available_fonts = [f.name for f in font_manager.fontManager.ttflist]
+    for font in chinese_fonts:
+        if font in available_fonts:
+            plt.rcParams['font.sans-serif'] = [font, 'DejaVu Sans']
+            break
+    plt.rcParams['axes.unicode_minus'] = False
+
+setup_chinese_font()
 
 
 class EnviroLSTM(nn.Module):
@@ -33,6 +46,41 @@ def get_device():
     return torch.device("cpu")
 
 
+def find_database():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    possible_paths = [
+        os.path.join(base_dir, "dbData", "enviro_data.db"),
+        os.path.join(os.path.dirname(base_dir), "dbData", "enviro_data.db"),
+    ]
+
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+
+    print("\n[错误] 未找到数据库文件")
+    print("已检查路径:")
+    for path in possible_paths:
+        print(f"  - {path}")
+
+    while True:
+        choice = input("\n是否手动选择数据库位置? (y/n): ").strip().lower()
+        if choice == 'y':
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            file_path = filedialog.askopenfilename(
+                title="选择数据库文件",
+                filetypes=[("SQLite数据库", "*.db"), ("所有文件", "*.*")]
+            )
+            if file_path and os.path.exists(file_path):
+                return file_path
+            print("[错误] 文件不存在，请重新选择")
+        elif choice == 'n':
+            print("[退出] 程序终止")
+            exit(1)
+
+
 def load_data(db_path, end_time, window_size):
     conn = sqlite3.connect(db_path)
 
@@ -42,21 +90,21 @@ def load_data(db_path, end_time, window_size):
 
     if min_time is None or max_time is None:
         conn.close()
-        raise ValueError("No valid data found in database")
+        raise ValueError("数据库无有效数据")
 
     min_time = pd.to_datetime(min_time)
     max_time = pd.to_datetime(max_time)
 
-    print(f"Database time range: {min_time} to {max_time}")
+    print(f"数据库时间范围: {min_time} 至 {max_time}")
 
     start_time = end_time - timedelta(minutes=window_size)
 
     if start_time < min_time:
         start_time = min_time
-        print(f"Adjusted start time to database minimum: {start_time}")
+        print(f"调整起始时间: {start_time}")
     if end_time > max_time:
         end_time = max_time
-        print(f"Adjusted end time to database maximum: {end_time}")
+        print(f"调整结束时间: {end_time}")
 
     if start_time >= end_time:
         new_end_time = max_time
@@ -64,11 +112,11 @@ def load_data(db_path, end_time, window_size):
         if new_start_time < min_time:
             new_start_time = min_time
         start_time, end_time = new_start_time, new_end_time
-        print(f"Adjusted time range to ensure valid window: {start_time} to {end_time}")
+        print(f"调整时间窗口: {start_time} 至 {end_time}")
 
     query = f"""
-        SELECT timestamp, temperature, humidity, light, mq135, zp01 
-        FROM sensor_data 
+        SELECT timestamp, temperature, humidity, light, mq135, zp01
+        FROM sensor_data
         WHERE temperature IS NOT NULL AND humidity IS NOT NULL AND light IS NOT NULL AND mq135 IS NOT NULL AND zp01 IS NOT NULL
         AND timestamp >= '{start_time}' AND timestamp <= '{end_time}'
         ORDER BY timestamp ASC
@@ -77,7 +125,7 @@ def load_data(db_path, end_time, window_size):
     conn.close()
 
     if df.empty:
-        raise ValueError(f"No data found in the specified time range: {start_time} to {end_time}")
+        raise ValueError(f"无数据: {start_time} 至 {end_time}")
 
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df["time_delta"] = df["timestamp"].diff().dt.total_seconds().fillna(0.0)
@@ -104,7 +152,7 @@ def load_model(model_path, scaler_path, device):
     model.load_state_dict(checkpoint)
     model.eval()
 
-    print(f"Loaded model with output_points={output_points}")
+    print(f"模型输出点数: {output_points}")
     return model, mins, maxs, output_points
 
 
@@ -150,7 +198,7 @@ def calculate_accuracy(predicted, actual, tolerance=None):
     mae = np.mean(np.abs(predicted - actual))
     mean_actual = np.mean(actual)
     relative_error = rmse / mean_actual if mean_actual > 0 else 0
-    
+
     within_tolerance = None
     if tolerance is not None:
         errors = np.abs(predicted - actual)
@@ -169,19 +217,19 @@ def save_tolerances(tolerances, base_dir):
     tolerances_path = os.path.join(base_dir, "tolerances.json")
     with open(tolerances_path, "w", encoding="utf-8") as f:
         json.dump(tolerances, f, ensure_ascii=False, indent=2)
-    print(f"✓ Tolerances saved to {tolerances_path}")
+    print(f"✓ 已保存容忍误差配置")
 
 
 def load_tolerances(base_dir):
     tolerances_path = os.path.join(base_dir, "tolerances.json")
     default_tolerances = {
-        "temperature": 1.0,
-        "humidity": 2.5,
+        "temperature": 2.0,
+        "humidity": 5.0,
         "light": 0.5,
         "mq135": 2.0,
         "zp01": 2.0
     }
-    
+
     if os.path.exists(tolerances_path):
         with open(tolerances_path, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -191,20 +239,20 @@ def load_tolerances(base_dir):
 def run_prediction_and_generate_chart():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     models_dir = os.path.join(base_dir, "models")
-    DB_PATH = os.path.join(os.path.dirname(base_dir), "dbData", "enviro_data.db")
+    DB_PATH = find_database()
     MODEL_PATH = os.path.join(models_dir, "enviro_model.pth")
     SCALER_PATH = os.path.join(models_dir, "scaler_params.json")
     WINDOW_SIZE = 360
 
     if not os.path.exists(MODEL_PATH):
-        print("Error: Model file not found")
+        print("错误: 模型文件未找到")
         return None
     if not os.path.exists(SCALER_PATH):
-        print("Error: Scaler params file not found")
+        print("错误: 缩放参数文件未找到")
         return None
 
     device = get_device()
-    print(f"Using device: {device}")
+    print(f"使用设备: {device}")
 
     model, mins, maxs, output_points = load_model(MODEL_PATH, SCALER_PATH, device)
 
@@ -214,30 +262,30 @@ def run_prediction_and_generate_chart():
     conn.close()
 
     if last_time is None:
-        print("Error: No data in database")
+        print("错误: 数据库无数据")
         return None
 
     last_time = pd.to_datetime(last_time)
-    print(f"Last time in database: {last_time}")
+    print(f"最新数据时间: {last_time}")
 
     prediction_start = last_time - timedelta(hours=24)
     prediction_end = last_time
-    print(f"Predicting from {prediction_start} to {prediction_end}")
+    print(f"预测范围: {prediction_start} 至 {prediction_end}")
 
     input_df = load_data(DB_PATH, prediction_start, WINDOW_SIZE)
-    print(f"Loaded {len(input_df)} data points for prediction")
+    print(f"加载数据点: {len(input_df)}")
 
     input_tensor = prepare_input(input_df, mins, maxs, device)
 
     temp_pred, hum_pred, light_pred, mq135_pred, zp01_pred = predict(model, input_tensor, device, mins, maxs)
-    print(f"Predicted {len(temp_pred)} points")
+    print(f"预测点数: {len(temp_pred)}")
 
     predicted_times = generate_time_series(prediction_start, len(temp_pred))
 
     conn = sqlite3.connect(DB_PATH)
     query = f"""
-        SELECT timestamp, temperature, humidity, light, mq135, zp01 
-        FROM sensor_data 
+        SELECT timestamp, temperature, humidity, light, mq135, zp01
+        FROM sensor_data
         WHERE temperature IS NOT NULL AND humidity IS NOT NULL AND light IS NOT NULL AND mq135 IS NOT NULL AND zp01 IS NOT NULL
         AND timestamp >= '{prediction_start}' AND timestamp <= '{prediction_end}'
         ORDER BY timestamp ASC
@@ -245,7 +293,7 @@ def run_prediction_and_generate_chart():
     actual_df = pd.read_sql_query(query, conn)
     conn.close()
 
-    print(f"Loaded {len(actual_df)} actual data points")
+    print(f"实际数据点: {len(actual_df)}")
 
     actual_times = pd.to_datetime(actual_df["timestamp"])
     actual_temp = actual_df["temperature"].values
@@ -332,7 +380,7 @@ def run_prediction_and_generate_chart():
     ax.plot(aligned_times, aligned_actual_temp, label='Actual', color='blue', linewidth=2)
     ax.plot(aligned_times, aligned_pred_temp, label='Predicted', color='red', linestyle='--', linewidth=2)
     ax.set_title('Temperature: Actual vs Predicted')
-    ax.set_ylabel('Temperature (°C)')
+    ax.set_ylabel('Temperature (C)')
     ax.legend()
     ax.grid(True, alpha=0.3)
     if x_min and x_max:
@@ -341,7 +389,7 @@ def run_prediction_and_generate_chart():
     ax = axes[0, 1]
     ax.bar(aligned_times, np.abs(aligned_pred_temp - aligned_actual_temp), width=bar_width, color='green', alpha=0.6)
     ax.set_title('Temperature Prediction Error')
-    ax.set_ylabel('Error (°C)')
+    ax.set_ylabel('Error (C)')
     ax.grid(True, alpha=0.3)
     if x_min and x_max:
         ax.set_xlim(x_min, x_max)
@@ -427,8 +475,8 @@ def run_prediction_and_generate_chart():
 
     chart_path = os.path.join(base_dir, 'prediction_comparison.png')
     plt.savefig(chart_path)
-    print(f"✓ Chart saved as {chart_path}")
-    
+    print(f"图表已保存: {chart_path}")
+
     plt.close()
 
     return {
@@ -441,132 +489,110 @@ def run_prediction_and_generate_chart():
 
 
 def show_avg_errors(prediction_data):
-    print("\n" + "=" * 50)
-    print("平均误差统计")
-    print("=" * 50)
-    
+    print("\n【平均误差统计】")
+
     sensor_names = {
-        "temp": ("Temperature", "°C"),
-        "hum": ("Humidity", "%"),
-        "light": ("Light", ""),
+        "temp": ("温度", "C"),
+        "hum": ("湿度", "%"),
+        "light": ("光照", ""),
         "mq135": ("MQ135", ""),
         "zp01": ("ZP01", "")
     }
-    
+
     for sensor_key, (name, unit) in sensor_names.items():
         pred, actual = prediction_data[sensor_key]
         result = calculate_accuracy(pred, actual)
-        print(f"\n{name}:")
-        print(f"  MAE (平均绝对误差): {result['mae']:.4f} {unit}")
-        print(f"  RMSE (均方根误差): {result['rmse']:.4f} {unit}")
-    
-    print("\n" + "=" * 50)
+        print(f"{name}: MAE={result['mae']:.2f}{unit}（平均绝对误差）, RMSE={result['rmse']:.2f}{unit}（均方根误差）")
 
 
 def set_tolerances(base_dir):
-    print("\n" + "=" * 50)
-    print("设置容忍误差")
-    print("=" * 50)
-    
+    print("\n【设置容忍误差】")
+
     current_tolerances = load_tolerances(base_dir)
-    
-    print("\n当前容忍误差设置:")
+
+    print("\n当前容忍误差:")
     sensor_names = {
-        "temperature": ("Temperature", "°C"),
-        "humidity": ("Humidity", "%"),
-        "light": ("Light", ""),
+        "temperature": ("温度", "C"),
+        "humidity": ("湿度", "%"),
+        "light": ("光照", ""),
         "mq135": ("MQ135", ""),
         "zp01": ("ZP01", "")
     }
-    
+
     for key, (name, unit) in sensor_names.items():
         print(f"  {name}: {current_tolerances.get(key, 'N/A')} {unit}")
-    
+
     print("\n请输入新的容忍误差（直接回车保持原值）:")
     new_tolerances = {}
-    
+
     for key, (name, unit) in sensor_names.items():
         while True:
             try:
                 current_val = current_tolerances.get(key, 0)
                 user_input = input(f"  {name} [当前: {current_val}] {unit}: ").strip()
-                
+
                 if user_input == "":
                     new_tolerances[key] = current_val
                     break
-                
+
                 val = float(user_input)
                 if val < 0:
                     print("    错误: 容忍误差不能为负数")
                     continue
-                
+
                 new_tolerances[key] = val
                 break
             except ValueError:
                 print("    错误: 请输入有效的数字")
-    
+
     save_tolerances(new_tolerances, base_dir)
-    print("\n" + "=" * 50)
 
 
 def query_hit_rate(prediction_data, base_dir):
-    print("\n" + "=" * 50)
-    print("预测命中率查询")
-    print("=" * 50)
-    
+    print("\n【预测命中率查询】")
+
     tolerances = load_tolerances(base_dir)
-    
-    print("\n当前容忍误差设置:")
+
     sensor_names = {
-        "temp": ("Temperature", "°C", "temperature"),
-        "hum": ("Humidity", "%", "humidity"),
-        "light": ("Light", "", "light"),
+        "temp": ("温度", "C", "temperature"),
+        "hum": ("湿度", "%", "humidity"),
+        "light": ("光照", "", "light"),
         "mq135": ("MQ135", "", "mq135"),
         "zp01": ("ZP01", "", "zp01")
     }
-    
-    print("\n预测命中率:")
-    print("-" * 50)
-    
+
     for sensor_key, (name, unit, tolerance_key) in sensor_names.items():
         pred, actual = prediction_data[sensor_key]
         tolerance = tolerances.get(tolerance_key, 0)
         result = calculate_accuracy(pred, actual, tolerance)
-        
+
         hit_rate = result['within_tolerance_percent'] or 0
-        print(f"\n{name} (容忍误差: {tolerance} {unit}):")
-        print(f"  命中率: {hit_rate:.2f}%")
-        print(f"  MAE: {result['mae']:.4f} {unit}")
-        print(f"  RMSE: {result['rmse']:.4f} {unit}")
-    
-    print("\n" + "=" * 50)
+        print(f"{name}（容忍误差: ±{tolerance}{unit}）: 命中率={hit_rate:.1f}%, MAE={result['mae']:.2f}{unit}（平均绝对误差）")
 
 
 def main():
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    
+
     print("=" * 60)
     print("环境预测分析工具")
     print("=" * 60)
-    
-    print("\n[步骤 1] 生成预测对比图...")
+
+    print("\n[步骤1] 生成预测对比图...")
     prediction_data = run_prediction_and_generate_chart()
-    
+
     if prediction_data is None:
         print("预测失败，程序退出")
         return
-    
+
     while True:
-        print("\n" + "=" * 60)
-        print("请选择操作:")
+        print("\n请选择操作:")
         print("  1. 查看误差平均值")
         print("  2. 设置容忍误差")
         print("  3. 查询预测命中率")
         print("  4. 退出")
-        print("=" * 60)
-        
+
         choice = input("\n请输入选项 (1-4): ").strip()
-        
+
         if choice == "1":
             show_avg_errors(prediction_data)
         elif choice == "2":
@@ -574,7 +600,7 @@ def main():
         elif choice == "3":
             query_hit_rate(prediction_data, base_dir)
         elif choice == "4":
-            print("\n程序终了")
+            print("\n再见!")
             break
         else:
             print("\n无效选项，请重新输入")
