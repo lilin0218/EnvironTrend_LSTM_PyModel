@@ -1,23 +1,14 @@
-from flask import request, jsonify
-from app import app
+from flask import Blueprint, request, jsonify
 from models import EnvironmentalData, db
 from datetime import datetime
 from sqlalchemy import func
-import sys
-import os
+from utils import log
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+data_bp = Blueprint('data', __name__)
 
-try:
-    from common import Logger
-    log = Logger.instance()
-except Exception as e:
-    log = None
-    print(f"Failed to initialize Logger: {str(e)}")
 
-@app.route('/api/data', methods=['POST'])
+@data_bp.route('/api/data', methods=['POST'])
 def receive_data():
-    """接收环境数据"""
     try:
         data = request.get_json()
         if not data:
@@ -45,7 +36,7 @@ def receive_data():
             timestamp = timestamp_str
 
         new_data = EnvironmentalData(
-            timestamp=timestamp_str,
+            timestamp=timestamp,
             temperature=data.get('temperature'),
             humidity=data.get('humidity'),
             light=data.get('light'),
@@ -66,9 +57,9 @@ def receive_data():
         print(f'Error receiving data: {str(e)}')
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/data', methods=['GET'])
+
+@data_bp.route('/api/data', methods=['GET'])
 def get_data():
-    """获取环境数据列表"""
     try:
         data = EnvironmentalData.query.order_by(EnvironmentalData.id.desc()).all()
         result = []
@@ -94,9 +85,9 @@ def get_data():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/data/statistics', methods=['GET'])
+
+@data_bp.route('/api/data/statistics', methods=['GET'])
 def get_statistics():
-    """获取传感器数据统计信息（最大值、最小值、平均值）"""
     try:
         stats = db.session.query(
             func.max(EnvironmentalData.temperature).label('max_temperature'),
@@ -150,9 +141,9 @@ def get_statistics():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/data/paged', methods=['GET'])
+
+@data_bp.route('/api/data/paged', methods=['GET'])
 def get_paged_data():
-    """获取分页数据"""
     try:
         page = int(request.args.get('page', 1))
         page_size = int(request.args.get('page_size', 20))
@@ -198,9 +189,9 @@ def get_paged_data():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/data/<int:id>', methods=['GET'])
+
+@data_bp.route('/api/data/<int:id>', methods=['GET'])
 def get_data_by_id(id):
-    """根据ID获取环境数据"""
     try:
         data = EnvironmentalData.query.get(id)
         if not data:

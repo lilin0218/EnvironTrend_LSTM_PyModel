@@ -31,6 +31,24 @@
                         <p>加载中...</p>
                     </div>
                 </section>
+
+                <section class="screenshot-display">
+                    <h2>实时截图</h2>
+                    <div class="screenshot-container">
+                        <div class="screenshot-main">
+                            <img id="current-screenshot" src="" alt="实时截图" style="display: none;">
+                            <div id="screenshot-placeholder" class="placeholder">
+                                <p>等待截图...</p>
+                                <p class="hint">开发板上传截图后将自动显示在此处</p>
+                            </div>
+                            <div id="screenshot-error" class="error" style="display: none;"></div>
+                        </div>
+                        <div class="screenshot-info">
+                            <p id="screenshot-status">状态: 等待连接</p>
+                            <p id="screenshot-timestamp">最后更新: -</p>
+                        </div>
+                    </div>
+                </section>
             </div>
 
             <div class="page-content" id="page-statistics">
@@ -124,6 +142,19 @@
             </div>
 
             <div class="page-content" id="page-trends">
+                <section class="predict-section">
+                    <h2>AI预测</h2>
+                    <div class="predict-controls">
+                        <button class="action-btn" id="predict-btn">执行预测</button>
+                        <div id="predict-status" class="status">状态: 就绪</div>
+                    </div>
+                    <div id="predict-result" class="predict-result" style="display: none;">
+                        <h3>预测结果</h3>
+                        <p id="predict-count">预测点数: 0</p>
+                        <p id="predict-range">时间范围: -</p>
+                    </div>
+                </section>
+
                 <section class="charts">
                     <h2>数据趋势图</h2>
                     <div class="charts-grid">

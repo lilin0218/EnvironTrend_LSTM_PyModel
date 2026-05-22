@@ -257,23 +257,44 @@ def run_prediction_and_generate_chart():
     model, mins, maxs, output_points = load_model(MODEL_PATH, SCALER_PATH, device)
 
     conn = sqlite3.connect(DB_PATH)
-    query = "SELECT MAX(timestamp) FROM sensor_data"
-    last_time = pd.read_sql_query(query, conn).iloc[0, 0]
+    query = "SELECT MIN(timestamp), MAX(timestamp) FROM sensor_data WHERE temperature IS NOT NULL AND humidity IS NOT NULL AND light IS NOT NULL AND mq135 IS NOT NULL AND zp01 IS NOT NULL"
+    time_range = pd.read_sql_query(query, conn)
+    min_time, max_time = time_range.iloc[0, 0], time_range.iloc[0, 1]
     conn.close()
 
-    if last_time is None:
-        print("错误: 数据库无数据")
+    if min_time is None or max_time is None:
+        print("错误: 数据库无有效数据")
         return None
 
-    last_time = pd.to_datetime(last_time)
-    print(f"最新数据时间: {last_time}")
+    min_time = pd.to_datetime(min_time)
+    max_time = pd.to_datetime(max_time)
+    print(f"数据库时间范围: {min_time} 至 {max_time}")
 
-    prediction_start = last_time - timedelta(hours=24)
-    prediction_end = last_time
-    print(f"预测范围: {prediction_start} 至 {prediction_end}")
+    # 选择一个合适的测试时间点 T：需要确保 T 之后有足够的实际数据（至少 output_points 分钟）
+    # 同时 T 之前要有足够的输入数据（至少 WINDOW_SIZE 分钟）
+    test_T = max_time - timedelta(minutes=output_points)
+    
+    # 确保测试时间点 T 不早于数据库起始时间加上窗口大小
+    min_required_T = min_time + timedelta(minutes=WINDOW_SIZE)
+    if test_T < min_required_T:
+        print(f"警告: 数据不足，调整测试时间点")
+        test_T = min_required_T
+    
+    print(f"测试时间点 T: {test_T}")
+    
+    # 输入窗口：T - WINDOW_SIZE 到 T 的数据
+    input_start = test_T - timedelta(minutes=WINDOW_SIZE)
+    input_end = test_T
+    print(f"输入窗口: {input_start} 至 {input_end}")
+    
+    # 预测区间：T 到 T + output_points
+    prediction_start = test_T
+    prediction_end = test_T + timedelta(minutes=output_points)
+    print(f"预测区间（对比区间）: {prediction_start} 至 {prediction_end}")
 
-    input_df = load_data(DB_PATH, prediction_start, WINDOW_SIZE)
-    print(f"加载数据点: {len(input_df)}")
+    # 加载输入数据（用于预测）
+    input_df = load_data(DB_PATH, input_end, WINDOW_SIZE)
+    print(f"加载输入数据点: {len(input_df)}")
 
     input_tensor = prepare_input(input_df, mins, maxs, device)
 
@@ -282,6 +303,7 @@ def run_prediction_and_generate_chart():
 
     predicted_times = generate_time_series(prediction_start, len(temp_pred))
 
+    # 加载实际数据（用于对比）：T 之后的实际数据
     conn = sqlite3.connect(DB_PATH)
     query = f"""
         SELECT timestamp, temperature, humidity, light, mq135, zp01

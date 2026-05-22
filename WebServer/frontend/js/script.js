@@ -6,6 +6,36 @@ let totalPages = 1;
 let currentTab = 'realtime';
 let statsData = null;
 
+let currentDayLabels = [];
+let chartDataCache = {
+    temperature: {},
+    humidity: {},
+    light: {},
+    mq135: {},
+    zp01: {}
+};
+
+function generateDayLabels() {
+    let labels = [];
+    for (let hour = 0; hour <= 23; hour++) {
+        for (let min = 0; min < 60; min += 10) {
+            labels.push(String(hour).padStart(2, '0') + ':' + String(min).padStart(2, '0'));
+        }
+    }
+    return labels;
+}
+
+function getTimeKey(timestamp) {
+    let date = new Date(timestamp);
+    let minutes = Math.floor(date.getMinutes() / 10) * 10;
+    return String(date.getHours()).padStart(2, '0') + ':' + String(minutes).padStart(2, '0');
+}
+
+function getCurrentDateString() {
+    let now = new Date();
+    return now.toISOString().split('T')[0];
+}
+
 function initCharts() {
     console.log('Initializing charts...');
     const ctxTemp = document.getElementById('temperature-chart').getContext('2d');
@@ -17,7 +47,15 @@ function initCharts() {
     const yAxisConfig = function(stats, field, fallbackMin, fallbackMax) {
         const min = stats ? (stats[field] ? stats[field].min : null) : null;
         const max = stats ? (stats[field] ? stats[field].max : null) : null;
-        const config = { beginAtZero: false, ticks: { maxTicksLimit: 10 } };
+        const config = { 
+            beginAtZero: false, 
+            ticks: { 
+                maxTicksLimit: 10,
+                callback: function(value) {
+                    return value.toFixed(value % 1 !== 0 ? 2 : 0);
+                }
+            } 
+        };
         if (min !== null && max !== null) {
             const padding = (max - min) * 0.1;
             config.min = Math.max(0, min - padding);
@@ -30,7 +68,13 @@ function initCharts() {
     };
 
     const xAxisConfig = {
-        ticks: { maxRotation: 45, minRotation: 45, font: { size: 9 } },
+        ticks: { 
+            maxRotation: 45, 
+            minRotation: 45, 
+            font: { size: 9 },
+            autoSkip: true,
+            maxTicksLimit: 24
+        },
         grid: { display: false }
     };
 
@@ -40,34 +84,156 @@ function initCharts() {
     const mq135YAxis = yAxisConfig(statsData, 'mq135', 0, 500);
     const zp01YAxis = yAxisConfig(statsData, 'zp01', 0, 500);
 
+    currentDayLabels = generateDayLabels();
+
     temperatureChart = new Chart(ctxTemp, {
         type: 'line',
-        data: { labels: [], datasets: [{ label: 'Temperature (C)', data: [], borderColor: 'rgba(255, 99, 132, 1)', backgroundColor: 'rgba(255, 99, 132, 0.2)', tension: 0.1 }] },
-        options: { responsive: true, maintainAspectRatio: true, scales: { x: xAxisConfig, y: tempYAxis } }
+        data: { 
+            labels: currentDayLabels, 
+            datasets: [{ 
+                label: 'Temperature (C)', 
+                data: Array(currentDayLabels.length).fill(null), 
+                borderColor: 'rgba(33, 150, 243, 1)', 
+                backgroundColor: 'rgba(33, 150, 243, 0.2)', 
+                tension: 0.1,
+                pointRadius: 2,
+                pointHoverRadius: 4
+            }] 
+        },
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false, 
+            scales: { x: xAxisConfig, y: tempYAxis },
+            plugins: {
+                legend: {
+                    labels: { font: { size: 11 } }
+                },
+                tooltip: {
+                    titleFont: { size: 11 },
+                    bodyFont: { size: 10 }
+                }
+            }
+        }
     });
 
     humidityChart = new Chart(ctxHumidity, {
         type: 'line',
-        data: { labels: [], datasets: [{ label: 'Humidity (%)', data: [], borderColor: 'rgba(54, 162, 235, 1)', backgroundColor: 'rgba(54, 162, 235, 0.2)', tension: 0.1 }] },
-        options: { responsive: true, maintainAspectRatio: true, scales: { x: xAxisConfig, y: humYAxis } }
+        data: { 
+            labels: currentDayLabels, 
+            datasets: [{ 
+                label: 'Humidity (%)', 
+                data: Array(currentDayLabels.length).fill(null), 
+                borderColor: 'rgba(33, 150, 243, 1)', 
+                backgroundColor: 'rgba(33, 150, 243, 0.2)', 
+                tension: 0.1,
+                pointRadius: 2,
+                pointHoverRadius: 4
+            }] 
+        },
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false, 
+            scales: { x: xAxisConfig, y: humYAxis },
+            plugins: {
+                legend: {
+                    labels: { font: { size: 11 } }
+                },
+                tooltip: {
+                    titleFont: { size: 11 },
+                    bodyFont: { size: 10 }
+                }
+            }
+        }
     });
 
     lightChart = new Chart(ctxLight, {
         type: 'line',
-        data: { labels: [], datasets: [{ label: 'Light', data: [], borderColor: 'rgba(255, 206, 86, 1)', backgroundColor: 'rgba(255, 206, 86, 0.2)', tension: 0.1 }] },
-        options: { responsive: true, maintainAspectRatio: true, scales: { x: xAxisConfig, y: lightYAxis } }
+        data: { 
+            labels: currentDayLabels, 
+            datasets: [{ 
+                label: 'Light', 
+                data: Array(currentDayLabels.length).fill(null), 
+                borderColor: 'rgba(33, 150, 243, 1)', 
+                backgroundColor: 'rgba(33, 150, 243, 0.2)', 
+                tension: 0.1,
+                pointRadius: 2,
+                pointHoverRadius: 4
+            }] 
+        },
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false, 
+            scales: { x: xAxisConfig, y: lightYAxis },
+            plugins: {
+                legend: {
+                    labels: { font: { size: 11 } }
+                },
+                tooltip: {
+                    titleFont: { size: 11 },
+                    bodyFont: { size: 10 }
+                }
+            }
+        }
     });
 
     mq135Chart = new Chart(ctxMq135, {
         type: 'line',
-        data: { labels: [], datasets: [{ label: 'MQ135', data: [], borderColor: 'rgba(75, 192, 192, 1)', backgroundColor: 'rgba(75, 192, 192, 0.2)', tension: 0.1 }] },
-        options: { responsive: true, maintainAspectRatio: true, scales: { x: xAxisConfig, y: mq135YAxis } }
+        data: { 
+            labels: currentDayLabels, 
+            datasets: [{ 
+                label: 'MQ135', 
+                data: Array(currentDayLabels.length).fill(null), 
+                borderColor: 'rgba(33, 150, 243, 1)', 
+                backgroundColor: 'rgba(33, 150, 243, 0.2)', 
+                tension: 0.1,
+                pointRadius: 2,
+                pointHoverRadius: 4
+            }] 
+        },
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false, 
+            scales: { x: xAxisConfig, y: mq135YAxis },
+            plugins: {
+                legend: {
+                    labels: { font: { size: 11 } }
+                },
+                tooltip: {
+                    titleFont: { size: 11 },
+                    bodyFont: { size: 10 }
+                }
+            }
+        }
     });
 
     zp01Chart = new Chart(ctxZp01, {
         type: 'line',
-        data: { labels: [], datasets: [{ label: 'ZP01', data: [], borderColor: 'rgba(153, 102, 255, 1)', backgroundColor: 'rgba(153, 102, 255, 0.2)', tension: 0.1 }] },
-        options: { responsive: true, maintainAspectRatio: true, scales: { x: xAxisConfig, y: zp01YAxis } }
+        data: { 
+            labels: currentDayLabels, 
+            datasets: [{ 
+                label: 'ZP01', 
+                data: Array(currentDayLabels.length).fill(null), 
+                borderColor: 'rgba(33, 150, 243, 1)', 
+                backgroundColor: 'rgba(33, 150, 243, 0.2)', 
+                tension: 0.1,
+                pointRadius: 2,
+                pointHoverRadius: 4
+            }] 
+        },
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false, 
+            scales: { x: xAxisConfig, y: zp01YAxis },
+            plugins: {
+                legend: {
+                    labels: { font: { size: 11 } }
+                },
+                tooltip: {
+                    titleFont: { size: 11 },
+                    bodyFont: { size: 10 }
+                }
+            }
+        }
     });
     console.log('Charts initialized');
 }
@@ -107,6 +273,104 @@ function formatTimestamp(timestamp) {
     return date.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
+function checkDateChange(timestamp) {
+    let dataDate = new Date(timestamp).toISOString().split('T')[0];
+    let currentDate = getCurrentDateString();
+    
+    if (dataDate !== currentDate) {
+        console.log('Date change detected! Resetting charts for new day:', dataDate);
+        resetChartsForNewDay();
+        return true;
+    }
+    return false;
+}
+
+function resetChartsForNewDay() {
+    currentDayLabels = generateDayLabels();
+    
+    chartDataCache = {
+        temperature: {},
+        humidity: {},
+        light: {},
+        mq135: {},
+        zp01: {}
+    };
+
+    temperatureChart.data.labels = currentDayLabels;
+    temperatureChart.data.datasets[0].data = Array(currentDayLabels.length).fill(null);
+    temperatureChart.update('none');
+
+    humidityChart.data.labels = currentDayLabels;
+    humidityChart.data.datasets[0].data = Array(currentDayLabels.length).fill(null);
+    humidityChart.update('none');
+
+    lightChart.data.labels = currentDayLabels;
+    lightChart.data.datasets[0].data = Array(currentDayLabels.length).fill(null);
+    lightChart.update('none');
+
+    mq135Chart.data.labels = currentDayLabels;
+    mq135Chart.data.datasets[0].data = Array(currentDayLabels.length).fill(null);
+    mq135Chart.update('none');
+
+    zp01Chart.data.labels = currentDayLabels;
+    zp01Chart.data.datasets[0].data = Array(currentDayLabels.length).fill(null);
+    zp01Chart.update('none');
+}
+
+function addDataPointToChart(timestamp, temperature, humidity, light, mq135, zp01) {
+    if (checkDateChange(timestamp)) {
+        return;
+    }
+
+    let timeKey = getTimeKey(timestamp);
+    let labelIndex = currentDayLabels.indexOf(timeKey);
+
+    if (labelIndex !== -1) {
+        if (temperature !== undefined && temperature !== null) {
+            chartDataCache.temperature[timeKey] = temperature;
+            temperatureChart.data.datasets[0].data[labelIndex] = temperature;
+        }
+        if (humidity !== undefined && humidity !== null) {
+            chartDataCache.humidity[timeKey] = humidity;
+            humidityChart.data.datasets[0].data[labelIndex] = humidity;
+        }
+        if (light !== undefined && light !== null) {
+            chartDataCache.light[timeKey] = light;
+            lightChart.data.datasets[0].data[labelIndex] = light;
+        }
+        if (mq135 !== undefined && mq135 !== null) {
+            chartDataCache.mq135[timeKey] = mq135;
+            mq135Chart.data.datasets[0].data[labelIndex] = mq135;
+        }
+        if (zp01 !== undefined && zp01 !== null) {
+            chartDataCache.zp01[timeKey] = zp01;
+            zp01Chart.data.datasets[0].data[labelIndex] = zp01;
+        }
+
+        temperatureChart.update('none');
+        humidityChart.update('none');
+        lightChart.update('none');
+        mq135Chart.update('none');
+        zp01Chart.update('none');
+    }
+}
+
+function loadHistoricalDataForToday(data) {
+    console.log('Loading historical data for today...');
+    
+    let today = getCurrentDateString();
+    
+    data.forEach(function(item) {
+        let itemDate = new Date(item.timestamp).toISOString().split('T')[0];
+        
+        if (itemDate === today) {
+            addDataPointToChart(item.timestamp, item.temperature, item.humidity, item.light, item.mq135, item.zp01);
+        }
+    });
+    
+    console.log('Historical data loaded');
+}
+
 function fetchLatestData() {
     console.log('Fetching latest data...');
     fetch('http://localhost:5000/api/data')
@@ -126,7 +390,8 @@ function fetchLatestData() {
                     '<p><strong>Light:</strong> ' + (latest.light || '-') + '</p>' +
                     '<p><strong>MQ135:</strong> ' + (latest.mq135 || '-') + '</p>' +
                     '<p><strong>ZP01:</strong> ' + (latest.zp01 || '-') + '</p>';
-                updateLineCharts(data.slice(0, 20));
+                
+                addDataPointToChart(latest.timestamp, latest.temperature, latest.humidity, latest.light, latest.mq135, latest.zp01);
             } else {
                 document.getElementById('latest-data').innerHTML = '<p>No data available</p>';
             }
@@ -137,30 +402,22 @@ function fetchLatestData() {
         });
 }
 
-function updateLineCharts(data) {
-    console.log('Updating line charts with', data.length, 'records');
-    var recentData = data.slice(0, 30).reverse();
-    var labels = recentData.map(function(item) { return formatTimestamp(item.timestamp); });
-
-    temperatureChart.data.labels = labels;
-    temperatureChart.data.datasets[0].data = recentData.map(function(item) { return item.temperature; });
-    temperatureChart.update();
-
-    humidityChart.data.labels = labels;
-    humidityChart.data.datasets[0].data = recentData.map(function(item) { return item.humidity; });
-    humidityChart.update();
-
-    lightChart.data.labels = labels;
-    lightChart.data.datasets[0].data = recentData.map(function(item) { return item.light; });
-    lightChart.update();
-
-    mq135Chart.data.labels = labels;
-    mq135Chart.data.datasets[0].data = recentData.map(function(item) { return item.mq135; });
-    mq135Chart.update();
-
-    zp01Chart.data.labels = labels;
-    zp01Chart.data.datasets[0].data = recentData.map(function(item) { return item.zp01; });
-    zp01Chart.update();
+function initChartsWithHistoricalData() {
+    console.log('Initializing charts with historical data...');
+    fetch('http://localhost:5000/api/data')
+        .then(function(response) {
+            if (!response.ok) {
+                throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+            }
+            return response.json();
+        })
+        .then(function(data) {
+            console.log('Initial data received:', data.length, 'records');
+            loadHistoricalDataForToday(data);
+        })
+        .catch(function(error) {
+            console.error('Error loading historical data:', error);
+        });
 }
 
 function fetchStatistics() {
@@ -199,7 +456,7 @@ function fetchStatistics() {
 
             updateBarCharts(stats);
             updatePieCharts(stats);
-            updateLineChartBounds(stats);
+            updateChartsYAxis(stats);
         })
         .catch(function(error) {
             console.error('Error fetching statistics:', error);
@@ -263,26 +520,59 @@ function updatePieCharts(stats) {
     humDistributionChart.update();
 }
 
-function updateLineChartBounds(stats) {
-    console.log('Updating line chart Y-axis bounds...');
-
-    const updateChartBounds = function(chart, field) {
-        const min = stats[field] ? stats[field].min : null;
-        const max = stats[field] ? stats[field].max : null;
-
-        if (min !== null && max !== null) {
-            const padding = (max - min) * 0.1;
-            chart.options.scales.y.min = Math.max(0, min - padding);
-            chart.options.scales.y.max = max + padding;
-            chart.update();
-        }
+function calculateYAxisRange(min, max) {
+    if (min === null || max === null || min === undefined || max === undefined) {
+        return { min: 0, max: 100 };
+    }
+    const padding = (max - min) * 0.1;
+    return {
+        min: min - padding,
+        max: max + padding
     };
+}
 
-    updateChartBounds(temperatureChart, 'temperature');
-    updateChartBounds(humidityChart, 'humidity');
-    updateChartBounds(lightChart, 'light');
-    updateChartBounds(mq135Chart, 'mq135');
-    updateChartBounds(zp01Chart, 'zp01');
+function updateChartsYAxis(stats) {
+    console.log('Updating charts Y-axis with stats:', stats);
+    
+    if (!stats) return;
+    
+    const tempRange = calculateYAxisRange(stats.temperature.min, stats.temperature.max);
+    const humRange = calculateYAxisRange(stats.humidity.min, stats.humidity.max);
+    const lightRange = calculateYAxisRange(stats.light.min, stats.light.max);
+    const mq135Range = calculateYAxisRange(stats.mq135.min, stats.mq135.max);
+    const zp01Range = calculateYAxisRange(stats.zp01.min, stats.zp01.max);
+    
+    if (temperatureChart) {
+        temperatureChart.options.scales.y.min = tempRange.min;
+        temperatureChart.options.scales.y.max = tempRange.max;
+        temperatureChart.update('none');
+    }
+    
+    if (humidityChart) {
+        humidityChart.options.scales.y.min = humRange.min;
+        humidityChart.options.scales.y.max = humRange.max;
+        humidityChart.update('none');
+    }
+    
+    if (lightChart) {
+        lightChart.options.scales.y.min = lightRange.min;
+        lightChart.options.scales.y.max = lightRange.max;
+        lightChart.update('none');
+    }
+    
+    if (mq135Chart) {
+        mq135Chart.options.scales.y.min = mq135Range.min;
+        mq135Chart.options.scales.y.max = mq135Range.max;
+        mq135Chart.update('none');
+    }
+    
+    if (zp01Chart) {
+        zp01Chart.options.scales.y.min = zp01Range.min;
+        zp01Chart.options.scales.y.max = zp01Range.max;
+        zp01Chart.update('none');
+    }
+    
+    console.log('Charts Y-axis updated successfully');
 }
 
 function fetchPagedData(page, size) {
@@ -290,7 +580,7 @@ function fetchPagedData(page, size) {
     if (size === undefined) size = 20;
     console.log('Fetching paged data: page=' + page + ', size=' + size);
 
-    fetch('http://localhost:5000/api/data/paged?page=' + page + '&page_size=' + size)
+    fetch('/api/data/paged?page=' + page + '&page_size=' + size)
         .then(function(response) {
             if (!response.ok) {
                 throw new Error('HTTP ' + response.status + ': ' + response.statusText);
@@ -381,6 +671,7 @@ function switchTab(tabName) {
         fetchStatistics();
     } else if (tabName === 'trends') {
         fetchLatestData();
+        initPredictionButton();
     } else if (tabName === 'history') {
         fetchPagedData(1, pageSize);
     }
@@ -427,14 +718,231 @@ window.onload = function() {
         initBarCharts();
         initPieCharts();
         initTabNavigation();
+        initChartsWithHistoricalData();
         fetchLatestData();
         fetchStatistics();
         fetchPagedData(1, pageSize);
+        initScreenshotDisplay();
         setInterval(fetchLatestData, 5000);
         setInterval(fetchStatistics, 30000);
+        setInterval(checkForNewScreenshots, 5000);
         console.log('Initialization complete');
     } catch (e) {
         console.error('Initialization error:', e);
         alert('Initialization error: ' + e.message);
     }
 };
+
+function initScreenshotDisplay() {
+    console.log('Initializing screenshot display...');
+    fetchScreenshots();
+}
+
+function fetchScreenshots() {
+    console.log('Fetching screenshots...');
+    fetch('/api/screenshots')
+        .then(function(response) {
+            if (!response.ok) {
+                throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+            }
+            return response.json();
+        })
+        .then(function(result) {
+            console.log('Screenshots received:', result.count, 'files');
+            if (result.screenshots && result.screenshots.length > 0) {
+                var latestScreenshot = result.screenshots[0];
+                updateScreenshotDisplay(latestScreenshot.url, latestScreenshot.modified);
+            } else {
+                showScreenshotPlaceholder();
+            }
+        })
+        .catch(function(error) {
+            console.error('Error fetching screenshots:', error);
+            showScreenshotError('Failed to load screenshots: ' + error.message);
+        });
+}
+
+function checkForNewScreenshots() {
+    if (currentTab !== 'realtime') {
+        return;
+    }
+    fetchScreenshots();
+}
+
+function updateScreenshotDisplay(url, modified) {
+    var img = document.getElementById('current-screenshot');
+    var placeholder = document.getElementById('screenshot-placeholder');
+    var error = document.getElementById('screenshot-error');
+    var status = document.getElementById('screenshot-status');
+    var timestamp = document.getElementById('screenshot-timestamp');
+
+    if (img && placeholder && error && status && timestamp) {
+        img.src = url + '?t=' + new Date().getTime();
+        img.style.display = 'block';
+        placeholder.style.display = 'none';
+        error.style.display = 'none';
+        status.textContent = '状态: 已连接';
+        timestamp.textContent = '最后更新: ' + formatTimestamp(modified);
+        
+        img.onerror = function() {
+            showScreenshotError('Failed to load screenshot image');
+        };
+    }
+}
+
+function showScreenshotPlaceholder() {
+    var img = document.getElementById('current-screenshot');
+    var placeholder = document.getElementById('screenshot-placeholder');
+    var error = document.getElementById('screenshot-error');
+    var status = document.getElementById('screenshot-status');
+    var timestamp = document.getElementById('screenshot-timestamp');
+
+    if (img && placeholder && error && status && timestamp) {
+        img.style.display = 'none';
+        placeholder.style.display = 'block';
+        error.style.display = 'none';
+        status.textContent = '状态: 等待截图';
+        timestamp.textContent = '最后更新: -';
+    }
+}
+
+function showScreenshotError(message) {
+    var img = document.getElementById('current-screenshot');
+    var placeholder = document.getElementById('screenshot-placeholder');
+    var error = document.getElementById('screenshot-error');
+    var status = document.getElementById('screenshot-status');
+
+    if (img && placeholder && error && status) {
+        img.style.display = 'none';
+        placeholder.style.display = 'none';
+        error.style.display = 'block';
+        error.textContent = message;
+        status.textContent = '状态: 连接失败';
+    }
+}
+
+let predictionData = null;
+
+function initPredictionButton() {
+    console.log('Initializing prediction button...');
+    
+    const predictBtn = document.getElementById('predict-btn');
+    
+    if (predictBtn) {
+        predictBtn.addEventListener('click', executePrediction);
+    }
+}
+
+function executePrediction() {
+    const btn = document.getElementById('predict-btn');
+    const status = document.getElementById('predict-status');
+    const result = document.getElementById('predict-result');
+    
+    if (!btn || !status) return;
+    
+    btn.disabled = true;
+    status.textContent = '状态: 正在预测...';
+    status.style.color = '#ffff00';
+    result.style.display = 'none';
+    
+    console.log('Executing prediction...');
+    fetch('/api/predict')
+        .then(function(response) {
+            if (!response.ok) {
+                throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+            }
+            return response.json();
+        })
+        .then(function(data) {
+            console.log('Prediction received:', data);
+            if (data.predictions && data.predictions.length > 0) {
+                predictionData = data.predictions;
+                updatePredictionResult(data.predictions);
+                displayPredictionOnCharts(data.predictions);
+                status.textContent = '状态: 预测完成';
+                status.style.color = '#00ff00';
+            } else {
+                status.textContent = '状态: 无预测数据';
+                status.style.color = '#ff6b6b';
+            }
+        })
+        .catch(function(error) {
+            console.error('Prediction error:', error);
+            status.textContent = '状态: 预测失败 - ' + error.message;
+            status.style.color = '#ff6b6b';
+        })
+        .finally(function() {
+            btn.disabled = false;
+        });
+}
+
+function updatePredictionResult(predictions) {
+    const result = document.getElementById('predict-result');
+    const count = document.getElementById('predict-count');
+    const range = document.getElementById('predict-range');
+    
+    if (result && count && range && predictions.length > 0) {
+        result.style.display = 'block';
+        count.textContent = '预测点数: ' + predictions.length;
+        
+        const firstTime = predictions[0].timestamp;
+        const lastTime = predictions[predictions.length - 1].timestamp;
+        range.textContent = '时间范围: ' + firstTime + ' ~ ' + lastTime;
+    }
+}
+
+function displayPredictionOnCharts(predictions) {
+    if (!predictions || predictions.length === 0) return;
+    
+    console.log('Displaying prediction on charts...');
+    
+    const predictionLabels = [];
+    const tempPredData = [];
+    const humPredData = [];
+    const lightPredData = [];
+    const mq135PredData = [];
+    const zp01PredData = [];
+    
+    predictions.forEach(function(pred, index) {
+        const timeKey = getTimeKey(pred.timestamp);
+        const hour = parseInt(timeKey.split(':')[0]);
+        
+        if (hour >= 0 && hour < 24) {
+            predictionLabels.push(timeKey);
+            tempPredData.push(pred.temperature);
+            humPredData.push(pred.humidity);
+            lightPredData.push(pred.light);
+            mq135PredData.push(pred.mq135);
+            zp01PredData.push(pred.zp01);
+        }
+    });
+    
+    console.log('Filtered predictions:', predictionLabels.length, 'points');
+    
+    updateChartWithPrediction(temperatureChart, tempPredData);
+    updateChartWithPrediction(humidityChart, humPredData);
+    updateChartWithPrediction(lightChart, lightPredData);
+    updateChartWithPrediction(mq135Chart, mq135PredData);
+    updateChartWithPrediction(zp01Chart, zp01PredData);
+}
+
+function updateChartWithPrediction(chart, predData) {
+    if (!chart) return;
+    
+    if (chart.data.datasets.length < 2) {
+        chart.data.datasets.push({
+            label: 'Prediction',
+            data: [],
+            borderColor: 'rgba(255, 152, 0, 1)',
+            backgroundColor: 'rgba(255, 152, 0, 0.1)',
+            borderDash: [5, 5],
+            tension: 0.3,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            borderWidth: 2
+        });
+    }
+    
+    chart.data.datasets[1].data = Array(currentDayLabels.length).fill(null).concat(predData);
+    chart.update('none');
+}
