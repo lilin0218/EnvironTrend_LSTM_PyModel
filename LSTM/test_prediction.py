@@ -622,7 +622,7 @@ def main():
         elif choice == "3":
             query_hit_rate(prediction_data, base_dir)
         elif choice == "4":
-            print("\n再见!")
+            print("\n程序终了")
             break
         else:
             print("\n无效选项，请重新输入")

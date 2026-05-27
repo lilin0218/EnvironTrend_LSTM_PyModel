@@ -3,15 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>环境数据监控系统</title>
+    <title>基于边缘智能的环境检测系统</title>
     <link rel="stylesheet" href="/frontend/css/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="container">
         <header class="header">
-            <h1>环境数据监控系统</h1>
-            <p class="subtitle">Environmental Data Monitoring System</p>
+            <h1>基于边缘智能的环境检测系统</h1>
+            <p class="subtitle">Environmental Detection System Based on Edge Intelligence</p>
         </header>
 
         <nav class="top-nav">
@@ -35,6 +35,11 @@
                 <section class="screenshot-display">
                     <h2>实时截图</h2>
                     <div class="screenshot-container">
+                        <div class="screenshot-nav">
+                            <button class="nav-btn" id="prev-screenshot" disabled>←</button>
+                            <span class="screenshot-index" id="screenshot-index">0 / 0</span>
+                            <button class="nav-btn" id="next-screenshot" disabled>→</button>
+                        </div>
                         <div class="screenshot-main">
                             <img id="current-screenshot" src="" alt="实时截图" style="display: none;">
                             <div id="screenshot-placeholder" class="placeholder">

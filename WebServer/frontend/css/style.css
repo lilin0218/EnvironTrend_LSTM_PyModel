@@ -437,6 +437,53 @@ section h2 {
     width: 100%;
 }
 
+.screenshot-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+.nav-btn {
+    width: 40px;
+    height: 40px;
+    background: #222;
+    border: 1px solid #555;
+    color: #00ff00;
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.nav-btn:hover:not(:disabled) {
+    background: #00ff00;
+    color: #000;
+    border-color: #00ff00;
+}
+
+.nav-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    color: #666;
+    border-color: #444;
+}
+
+.screenshot-index {
+    font-size: 0.9rem;
+    color: #888;
+    min-width: 60px;
+    text-align: center;
+}
+
+.screenshot-index span {
+    color: #00ff00;
+    font-weight: 600;
+}
+
 .screenshot-info {
     margin-top: 12px;
     display: flex;

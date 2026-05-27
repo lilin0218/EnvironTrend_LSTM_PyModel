@@ -17,8 +17,8 @@ def cleanup_old_screenshots(app):
             reverse=True
         )
         
-        if len(screenshots) > 20:
-            for old_file in screenshots[20:]:
+        if len(screenshots) > 100:
+            for old_file in screenshots[100:]:
                 try:
                     os.remove(old_file)
                     if log:

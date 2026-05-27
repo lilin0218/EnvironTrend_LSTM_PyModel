@@ -1,7 +1,7 @@
 {
-  "temperature": 2.0,
-  "humidity": 4.0,
-  "light": 0.5,
-  "mq135": 2.0,
-  "zp01": 2.0
+  "temperature": 1.0,
+  "humidity": 2.0,
+  "light": 0.2,
+  "mq135": 1.0,
+  "zp01": 1.0
 }

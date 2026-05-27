@@ -18,7 +18,7 @@ let chartDataCache = {
 function generateDayLabels() {
     let labels = [];
     for (let hour = 0; hour <= 23; hour++) {
-        for (let min = 0; min < 60; min += 10) {
+        for (let min = 0; min < 60; min++) {
             labels.push(String(hour).padStart(2, '0') + ':' + String(min).padStart(2, '0'));
         }
     }
@@ -26,14 +26,18 @@ function generateDayLabels() {
 }
 
 function getTimeKey(timestamp) {
+    let dateStr = typeof timestamp === 'string' ? timestamp : timestamp.toISOString();
+    let match = dateStr.match(/T(\d{2}):(\d{2})/);
+    if (match) {
+        return match[1] + ':' + match[2];
+    }
     let date = new Date(timestamp);
-    let minutes = Math.floor(date.getMinutes() / 10) * 10;
-    return String(date.getHours()).padStart(2, '0') + ':' + String(minutes).padStart(2, '0');
+    return String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
 }
 
 function getCurrentDateString() {
     let now = new Date();
-    return now.toISOString().split('T')[0];
+    return now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
 }
 
 function initCharts() {
@@ -269,15 +273,22 @@ function initPieCharts() {
 
 function formatTimestamp(timestamp) {
     if (!timestamp) return 'Unknown';
+    let dateStr = typeof timestamp === 'string' ? timestamp : timestamp.toISOString();
+    let match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/);
+    if (match) {
+        return match[1] + '/' + match[2] + '/' + match[3] + ' ' + match[4] + ':' + match[5] + ':' + match[6];
+    }
     const date = new Date(timestamp);
     return date.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 function checkDateChange(timestamp) {
-    let dataDate = new Date(timestamp).toISOString().split('T')[0];
+    let dateStr = typeof timestamp === 'string' ? timestamp : timestamp.toISOString();
+    let match = dateStr.match(/^(\d{4}-\d{2}-\d{2})/);
+    let dataDate = match ? match[1] : null;
     let currentDate = getCurrentDateString();
     
-    if (dataDate !== currentDate) {
+    if (dataDate && dataDate !== currentDate) {
         console.log('Date change detected! Resetting charts for new day:', dataDate);
         resetChartsForNewDay();
         return true;
@@ -352,6 +363,8 @@ function addDataPointToChart(timestamp, temperature, humidity, light, mq135, zp0
         lightChart.update('none');
         mq135Chart.update('none');
         zp01Chart.update('none');
+        
+        updateChartsYAxisFromCurrentData();
     }
 }
 
@@ -361,7 +374,9 @@ function loadHistoricalDataForToday(data) {
     let today = getCurrentDateString();
     
     data.forEach(function(item) {
-        let itemDate = new Date(item.timestamp).toISOString().split('T')[0];
+        let dateStr = typeof item.timestamp === 'string' ? item.timestamp : item.timestamp.toISOString();
+        let match = dateStr.match(/^(\d{4}-\d{2}-\d{2})/);
+        let itemDate = match ? match[1] : null;
         
         if (itemDate === today) {
             addDataPointToChart(item.timestamp, item.temperature, item.humidity, item.light, item.mq135, item.zp01);
@@ -521,7 +536,7 @@ function updatePieCharts(stats) {
 }
 
 function calculateYAxisRange(min, max) {
-    if (min === null || max === null || min === undefined || max === undefined) {
+    if (min === null || max === null || min === undefined || max === undefined || isNaN(min) || isNaN(max)) {
         return { min: 0, max: 100 };
     }
     const padding = (max - min) * 0.1;
@@ -529,6 +544,50 @@ function calculateYAxisRange(min, max) {
         min: min - padding,
         max: max + padding
     };
+}
+
+function updateChartsYAxisFromCurrentData() {
+    console.log('Updating Y-axis from current chart data...');
+    
+    const dataStats = {
+        temperature: { min: Infinity, max: -Infinity },
+        humidity: { min: Infinity, max: -Infinity },
+        light: { min: Infinity, max: -Infinity },
+        mq135: { min: Infinity, max: -Infinity },
+        zp01: { min: Infinity, max: -Infinity }
+    };
+    
+    const charts = {
+        temperature: temperatureChart,
+        humidity: humidityChart,
+        light: lightChart,
+        mq135: mq135Chart,
+        zp01: zp01Chart
+    };
+    
+    Object.keys(charts).forEach(function(key) {
+        const chart = charts[key];
+        if (!chart || !chart.data || !chart.data.datasets) return;
+        
+        chart.data.datasets.forEach(function(dataset) {
+            if (dataset.data) {
+                dataset.data.forEach(function(value) {
+                    if (value !== null && value !== undefined && !isNaN(value)) {
+                        dataStats[key].min = Math.min(dataStats[key].min, value);
+                        dataStats[key].max = Math.max(dataStats[key].max, value);
+                    }
+                });
+            }
+        });
+    });
+    
+    Object.keys(dataStats).forEach(function(key) {
+        if (dataStats[key].min === Infinity || dataStats[key].max === -Infinity) {
+            dataStats[key] = { min: 0, max: 100 };
+        }
+    });
+    
+    updateChartsYAxis(dataStats);
 }
 
 function updateChartsYAxis(stats) {
@@ -735,6 +794,7 @@ window.onload = function() {
 
 function initScreenshotDisplay() {
     console.log('Initializing screenshot display...');
+    initScreenshotNavigation();
     fetchScreenshots();
 }
 
@@ -750,10 +810,19 @@ function fetchScreenshots() {
         .then(function(result) {
             console.log('Screenshots received:', result.count, 'files');
             if (result.screenshots && result.screenshots.length > 0) {
-                var latestScreenshot = result.screenshots[0];
-                updateScreenshotDisplay(latestScreenshot.url, latestScreenshot.modified);
+                screenshotsList = result.screenshots;
+                if (currentScreenshotIndex >= screenshotsList.length) {
+                    currentScreenshotIndex = 0;
+                }
+                updateScreenshotDisplay(screenshotsList[currentScreenshotIndex].url, screenshotsList[currentScreenshotIndex].modified);
+                updateScreenshotIndex();
+                updateNavButtons();
             } else {
+                screenshotsList = [];
+                currentScreenshotIndex = 0;
                 showScreenshotPlaceholder();
+                updateScreenshotIndex();
+                updateNavButtons();
             }
         })
         .catch(function(error) {
@@ -821,7 +890,60 @@ function showScreenshotError(message) {
     }
 }
 
+function updateScreenshotIndex() {
+    var indexElement = document.getElementById('screenshot-index');
+    if (indexElement) {
+        indexElement.textContent = (currentScreenshotIndex + 1) + ' / ' + screenshotsList.length;
+    }
+}
+
+function updateNavButtons() {
+    var prevBtn = document.getElementById('prev-screenshot');
+    var nextBtn = document.getElementById('next-screenshot');
+    
+    if (prevBtn) {
+        prevBtn.disabled = screenshotsList.length <= 1 || currentScreenshotIndex <= 0;
+    }
+    if (nextBtn) {
+        nextBtn.disabled = screenshotsList.length <= 1 || currentScreenshotIndex >= screenshotsList.length - 1;
+    }
+}
+
+function prevScreenshot() {
+    if (screenshotsList.length > 1 && currentScreenshotIndex > 0) {
+        currentScreenshotIndex--;
+        var screenshot = screenshotsList[currentScreenshotIndex];
+        updateScreenshotDisplay(screenshot.url, screenshot.modified);
+        updateScreenshotIndex();
+        updateNavButtons();
+    }
+}
+
+function nextScreenshot() {
+    if (screenshotsList.length > 1 && currentScreenshotIndex < screenshotsList.length - 1) {
+        currentScreenshotIndex++;
+        var screenshot = screenshotsList[currentScreenshotIndex];
+        updateScreenshotDisplay(screenshot.url, screenshot.modified);
+        updateScreenshotIndex();
+        updateNavButtons();
+    }
+}
+
+function initScreenshotNavigation() {
+    var prevBtn = document.getElementById('prev-screenshot');
+    var nextBtn = document.getElementById('next-screenshot');
+    
+    if (prevBtn) {
+        prevBtn.addEventListener('click', prevScreenshot);
+    }
+    if (nextBtn) {
+        nextBtn.addEventListener('click', nextScreenshot);
+    }
+}
+
 let predictionData = null;
+let screenshotsList = [];
+let currentScreenshotIndex = 0;
 
 function initPredictionButton() {
     console.log('Initializing prediction button...');
@@ -896,34 +1018,40 @@ function displayPredictionOnCharts(predictions) {
     
     console.log('Displaying prediction on charts...');
     
-    const predictionLabels = [];
-    const tempPredData = [];
-    const humPredData = [];
-    const lightPredData = [];
-    const mq135PredData = [];
-    const zp01PredData = [];
+    const now = new Date();
+    const currentTimeKey = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    const currentIndex = currentDayLabels.indexOf(currentTimeKey);
     
-    predictions.forEach(function(pred, index) {
+    const tempPredData = Array(currentDayLabels.length).fill(null);
+    const humPredData = Array(currentDayLabels.length).fill(null);
+    const lightPredData = Array(currentDayLabels.length).fill(null);
+    const mq135PredData = Array(currentDayLabels.length).fill(null);
+    const zp01PredData = Array(currentDayLabels.length).fill(null);
+    
+    let count = 0;
+    predictions.forEach(function(pred) {
         const timeKey = getTimeKey(pred.timestamp);
-        const hour = parseInt(timeKey.split(':')[0]);
+        const labelIndex = currentDayLabels.indexOf(timeKey);
         
-        if (hour >= 0 && hour < 24) {
-            predictionLabels.push(timeKey);
-            tempPredData.push(pred.temperature);
-            humPredData.push(pred.humidity);
-            lightPredData.push(pred.light);
-            mq135PredData.push(pred.mq135);
-            zp01PredData.push(pred.zp01);
+        if (labelIndex !== -1 && labelIndex < currentDayLabels.length && labelIndex > currentIndex) {
+            tempPredData[labelIndex] = pred.temperature;
+            humPredData[labelIndex] = pred.humidity;
+            lightPredData[labelIndex] = pred.light;
+            mq135PredData[labelIndex] = pred.mq135;
+            zp01PredData[labelIndex] = pred.zp01;
+            count++;
         }
     });
     
-    console.log('Filtered predictions:', predictionLabels.length, 'points');
+    console.log('Filtered predictions:', count, 'points mapped to chart (only future times)');
     
     updateChartWithPrediction(temperatureChart, tempPredData);
     updateChartWithPrediction(humidityChart, humPredData);
     updateChartWithPrediction(lightChart, lightPredData);
     updateChartWithPrediction(mq135Chart, mq135PredData);
     updateChartWithPrediction(zp01Chart, zp01PredData);
+    
+    updateChartsYAxisWithPrediction(predictions);
 }
 
 function updateChartWithPrediction(chart, predData) {
@@ -943,6 +1071,46 @@ function updateChartWithPrediction(chart, predData) {
         });
     }
     
-    chart.data.datasets[1].data = Array(currentDayLabels.length).fill(null).concat(predData);
+    chart.data.datasets[1].data = predData;
     chart.update('none');
+}
+
+function updateChartsYAxisWithPrediction(predictions) {
+    if (!predictions || predictions.length === 0) return;
+    
+    console.log('Updating Y-axis with prediction data...');
+    
+    const predStats = {
+        temperature: { min: Infinity, max: -Infinity },
+        humidity: { min: Infinity, max: -Infinity },
+        light: { min: Infinity, max: -Infinity },
+        mq135: { min: Infinity, max: -Infinity },
+        zp01: { min: Infinity, max: -Infinity }
+    };
+    
+    predictions.forEach(function(pred) {
+        predStats.temperature.min = Math.min(predStats.temperature.min, pred.temperature);
+        predStats.temperature.max = Math.max(predStats.temperature.max, pred.temperature);
+        predStats.humidity.min = Math.min(predStats.humidity.min, pred.humidity);
+        predStats.humidity.max = Math.max(predStats.humidity.max, pred.humidity);
+        predStats.light.min = Math.min(predStats.light.min, pred.light);
+        predStats.light.max = Math.max(predStats.light.max, pred.light);
+        predStats.mq135.min = Math.min(predStats.mq135.min, pred.mq135);
+        predStats.mq135.max = Math.max(predStats.mq135.max, pred.mq135);
+        predStats.zp01.min = Math.min(predStats.zp01.min, pred.zp01);
+        predStats.zp01.max = Math.max(predStats.zp01.max, pred.zp01);
+    });
+    
+    const combinedStats = {};
+    Object.keys(predStats).forEach(function(key) {
+        const existingMin = statsData && statsData[key] ? statsData[key].min : null;
+        const existingMax = statsData && statsData[key] ? statsData[key].max : null;
+        
+        combinedStats[key] = {
+            min: existingMin !== null ? Math.min(existingMin, predStats[key].min) : predStats[key].min,
+            max: existingMax !== null ? Math.max(existingMax, predStats[key].max) : predStats[key].max
+        };
+    });
+    
+    updateChartsYAxis(combinedStats);
 }
